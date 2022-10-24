@@ -50,7 +50,7 @@ static int MyModule_open(struct inode *inode, struct file *filp) {
   // lock to protect critical code section
   spin_lock(&lock_access);
   // get the owner if nothing is accessed yet
-  if (!(file_write && file_read)){
+  if (!file_write && !file_read)){
     owner = current_uid().val;
   }
 
