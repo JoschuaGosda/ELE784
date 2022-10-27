@@ -12,6 +12,8 @@
 #include <linux/slab.h>
 #include <asm/uaccess.h>
 #include <linux/uaccess.h>
+#include "newbuffer.c"
+
 
 // used for open & release
 #include <stdbool.h>

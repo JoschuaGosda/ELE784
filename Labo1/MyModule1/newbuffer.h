@@ -1,5 +1,3 @@
-#include <stddef.h>
-
 
 typedef struct circular_buffer
 {
@@ -16,6 +14,6 @@ void cb_init(circular_buffer *cb, size_t capacity, size_t sz);
 
 void cb_free(circular_buffer *cb);
 
-void cb_push_back(circular_buffer *cb, const void *item);
+void cb_push(circular_buffer *cb, const void *item);
 
-void cb_pop_front(circular_buffer *cb, void *item);
+void cb_pop(circular_buffer *cb, void *item);
