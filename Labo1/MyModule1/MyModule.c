@@ -24,19 +24,42 @@ struct file_operations MyModule_fops = {
 	.open		=	MyModule_open,
 	.release	=	MyModule_release
 };
-typedef struct Perso {
-  uint16_t owner[PORTNUMBER]; // takes the owners id
-  bool file_read[PORTNUMBER], file_write[PORTNUMBER];
-  bool blocking[PORTNUMBER];
-  circular_buffer buf_rdwr;
-} Perso;
 
-Perso perso;
+struct pData {
+  uint16_t owner; // takes the owners id
+  circular_buffer buf_rdwr;
+  uint8_t numPort;
+} pData;
+
+struct pData pdata[PORTNUMBER];
 
 struct cdev My_cdev;
 
+
+static int __init mod_init (void) {
+int n, i;
+
+  alloc_chrdev_region (&My_dev,  0,  PORTNUMBER, "MonPremierPilote");
+
+  MyClass = class_create(THIS_MODULE, "MyModule");
+  for (n = 0; n < PORTNUMBER; n++) {
+  	device_create(MyClass, NULL, (My_dev + n), NULL, "MyModuleNode%d", n);
+  }
+
+
+  cdev_init(&My_cdev, &MyModule_fops);
+  cdev_add(&My_cdev, My_dev, PORTNUMBER); 
+
+
+  printk(KERN_WARNING"MyMod : Hello World ! MyModule_X = %u\n", MyModule_X);
+
+  return 0;
+}
+
 static ssize_t MyModule_read(struct file *filp, char *buff , size_t len, loff_t *off) {
-   // send from kernelSpace to userSpace
+  // send from kernelSpace to userSpace
+
+  // todo check if the user can read
   uint8_t BufR[8];
   int i;
 
@@ -44,7 +67,7 @@ static ssize_t MyModule_read(struct file *filp, char *buff , size_t len, loff_t 
 
   // retire content of ring buffer to local buffer une a la fois
   for(i = 0; i < len; i++){
-    cb_pop(&perso.buf_rdwr, &BufR[i]);
+    cb_pop(filp->private_data->buf_rdwr, &BufR[i]);
   }
 
   printk(KERN_WARNING"MyMod: copied from ring buffer to local buffer \n");
@@ -61,6 +84,8 @@ static ssize_t MyModule_read(struct file *filp, char *buff , size_t len, loff_t 
 static ssize_t MyModule_write(struct file *filp, const char *buff , size_t len, loff_t *off) {
 
   // copy from userSpace to kernelSpace
+  // todo check if the user can write
+	//if(perso.file_read[perso.numPort]
   uint8_t BufW[8];
   int i;
 
@@ -73,7 +98,7 @@ static ssize_t MyModule_write(struct file *filp, const char *buff , size_t len, 
 
   // copy content of local buffer to ring buffer une a la fois
   for(i = 0; i < len; i++){
-    cb_push(&perso.buf_rdwr, &BufW[i]);
+    cb_push(filp->private_data->buf_rdwr, &BufW[i]);
   }
 
   
@@ -84,51 +109,21 @@ static ssize_t MyModule_write(struct file *filp, const char *buff , size_t len, 
 
 static int MyModule_open(struct inode *inode, struct file *filp) {
 
-  uint32_t numPort; 
+  uint32_t numPort;
 
-  printk(KERN_WARNING"MyMod: OPEN\n");
-  // lock to protect critical code section
-  spin_lock(&lock_access);
   // get the port the owner want to joint	
   numPort = MINOR(inode->i_rdev);
-  
-  printk(KERN_WARNING"MyMod open: ir_dev : %u\n",numPort);
-  // get the owner if nothing is accessed yet
-  if (!perso.file_write[numPort] && !perso.file_read[numPort]){
-    perso.owner[numPort] = current_uid().val;
-  }
 
-  // check if the user that tries to open is the owner
-  if (current_uid().val == perso.owner[numPort])
-  {
-    // check the access mode, update file_read, file_write flags or return error if applicable
-    if ((filp->f_flags & O_ACCMODE) == O_WRONLY && !perso.file_write[numPort])
-    {
-      perso.file_write[numPort] = true;
-      spin_unlock(&lock_access);
-    }
-    else if ((filp->f_flags & O_ACCMODE) == O_RDONLY && !perso.file_read[numPort])
-    {
-      perso.file_read[numPort] = true;
-      spin_unlock(&lock_access);
-    }
-    else if ((filp->f_flags & O_ACCMODE) == O_RDWR && (!perso.file_write[numPort] && !perso.file_read[numPort]))
-    {
-      perso.file_write[numPort] = true;
-      perso.file_read[numPort] = true;
-      spin_unlock(&lock_access);
-    }
-    else
-    {
-      spin_unlock(&lock_access);
-      return -ENOTTY;
-    }
-  }
-  else
-  { // current user it not the owner
-    spin_unlock(&lock_access);
-    return -ENOTTY;
-  }
+  filp->private_data = &pData[numPort];
+
+ 
+  // lock to protect critical code section
+  spin_lock(&lock_access);
+  // get the port the owner want to joint
+  portID = MINOR(inode->i_rdev);
+  printk(KERN_WARNING"MyMod: OPEN port: %u\n",portID);	
+  //perso[].owner = current_uid().val;
+  
 
   // TODO: Port Série doit être placé en mode Réception
 
@@ -143,31 +138,7 @@ static int MyModule_release(struct inode *inode, struct file *filp) {
 
   printk(KERN_WARNING"MyMod: RELEASE\n");
 
-  // get the port the owner want to joint	
-  numPort = MINOR(inode->i_rdev);
-
-  spin_lock(&lock_access);
-  if ((filp->f_flags & O_ACCMODE) == O_WRONLY && perso.file_write[numPort])
-  {
-    perso.file_write[numPort] = false;
-    spin_unlock(&lock_access);
-  }
-    else if ((filp->f_flags & O_ACCMODE) == O_RDONLY && perso.file_read[numPort])
-    {
-      perso.file_read[numPort] = false;
-      spin_unlock(&lock_access);
-    }
-    else if ((filp->f_flags & O_ACCMODE) == O_RDWR && (perso.file_write[numPort] && perso.file_read[numPort]))
-    {
-      perso.file_write[numPort] = false;
-      perso.file_read[numPort] = false;
-      spin_unlock(&lock_access);
-    }
-    else
-    {
-      spin_unlock(&lock_access);
-      return -ENOTTY;
-    }
+  
 
   // TODO: Et si le mode d’ouverture était O_RDONL Y ou O_RDWR, la Réception du Port Série doit être interrompue afin d’arrêter de recevoir des données
 
@@ -177,33 +148,7 @@ static int MyModule_release(struct inode *inode, struct file *filp) {
 
 }
 
-static int __init mod_init (void) {
-int n, i;
 
-  alloc_chrdev_region (&My_dev,  0,  PORTNUMBER, "MonPremierPilote");
-
-  MyClass = class_create(THIS_MODULE, "MyModule");
-  for (n = 0; n < PORTNUMBER; n++) {
-  	device_create(MyClass, NULL, (My_dev + n), NULL, "MyModuleNode%d", n);
-  }
-
-
-  cdev_init(&My_cdev, &MyModule_fops);
-  cdev_add(&My_cdev, My_dev, PORTNUMBER); 
-
-  // set file_read and file_write flags to FALSE 
-  for (i=0; i < PORTNUMBER; i++){
-    perso.file_read[i] = false;
-    perso.file_write[i] = false;
-    perso.blocking[i] = false;
-  }
-
-  cb_init(&perso.buf_rdwr, 128, 8);
-
-  printk(KERN_WARNING"MyMod : Hello World ! MyModule_X = %u\n", MyModule_X);
-
-  return 0;
-}
 
 static void __exit mod_exit (void) {
 int n;
@@ -217,7 +162,7 @@ int n;
 
   unregister_chrdev_region(My_dev, PORTNUMBER);
 
-  cb_free(&perso.buf_rdwr);
+  //cb_free(&perso.buf_rdwr);
 
   printk(KERN_WARNING"MyMod : Goodbye cruel World !\n");
 
