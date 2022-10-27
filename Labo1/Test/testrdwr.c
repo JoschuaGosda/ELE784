@@ -26,7 +26,7 @@ int main()
 
     read(fd, &buffer, 8);
 
-    printf("reading from dev %s\n", buffer);
+    printf("FILE: Data from Buffer:  %s\n", buffer);
 
     close(fd);
     printf("\n");

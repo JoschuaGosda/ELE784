@@ -55,7 +55,7 @@ void cb_free(circular_buffer *cb)
   // clear out other fields too, just to be safe
 }
 
-void cb_push_back(circular_buffer *cb, const void *item)
+void cb_push(circular_buffer *cb, const void *item) // push back
 {
   if (cb->count == cb->capacity)
   {
@@ -69,7 +69,7 @@ void cb_push_back(circular_buffer *cb, const void *item)
   cb->count++;
 }
 
-void cb_pop_front(circular_buffer *cb, void *item)
+void cb_pop(circular_buffer *cb, void *item) // pop front
 {
   if (cb->count == 0)
   {
@@ -103,7 +103,7 @@ static ssize_t MyModule_read(struct file *filp, char *buff , size_t len, loff_t 
 
   // retire content of ring buffer to local buffer une a la fois
   for(i = 0; i < len; i++){
-    cb_pop_front(&perso.buf_rdwr, &BufR[i]);
+    cb_pop(&perso.buf_rdwr, &BufR[i]);
   }
 
   printk(KERN_WARNING"MyMod: copied from ring buffer to local buffer \n");
@@ -132,7 +132,7 @@ static ssize_t MyModule_write(struct file *filp, const char *buff , size_t len, 
 
   // copy content of local buffer to ring buffer une a la fois
   for(i = 0; i < len; i++){
-    cb_push_back(&perso.buf_rdwr, &BufW[i]);
+    cb_push(&perso.buf_rdwr, &BufW[i]);
   }
 
   
@@ -245,19 +245,12 @@ int n, i;
   for (n = 0; n < PORTNUMBER; n++) {
   	device_create(MyClass, NULL, (My_dev + n), NULL, "MyModuleNode%d", n);
   }
-  /*printk(KERN_WARNING"MyMod init : My_dev0 : %u , My_dev1 : %u ",My_dev,My_dev+1);
-  uint16_t a = MAJOR(My_dev);
-  uint16_t b = MINOR(My_dev);
-  uint16_t aa = MAJOR(My_dev+1);
-  uint16_t bb = MINOR(My_dev+1);
-  printk(KERN_WARNING"MyMod DEV0 major :%u, minor: %u DEV1 maj :%u minor:%u ", a,b,aa,bb);*/
+
 
   cdev_init(&My_cdev, &MyModule_fops);
   cdev_add(&My_cdev, My_dev, PORTNUMBER); 
 
   // set file_read and file_write flags to FALSE 
-  //todo loop with PORTNUMBER
-
   for (i=0; i < PORTNUMBER; i++){
     perso.file_read[i] = false;
     perso.file_write[i] = false;
