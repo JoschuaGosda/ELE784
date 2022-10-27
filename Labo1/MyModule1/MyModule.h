@@ -11,6 +11,7 @@
 #include <linux/cdev.h>
 #include <linux/slab.h>
 #include <asm/uaccess.h>
+#include <linux/uaccess.h>
 
 // used for open & release
 #include <stdbool.h>

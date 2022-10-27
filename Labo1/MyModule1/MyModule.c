@@ -60,6 +60,7 @@ void cb_push_back(circular_buffer *cb, const void *item)
   if (cb->count == cb->capacity)
   {
     // handle error
+    printk(KERN_WARNING"MyMod: Buffer is full \n");
   }
   memcpy(cb->head, item, cb->sz);
   cb->head = (char *)cb->head + cb->sz;
@@ -73,6 +74,7 @@ void cb_pop_front(circular_buffer *cb, void *item)
   if (cb->count == 0)
   {
     // handle error
+    printk(KERN_WARNING"MyMod: Buffer is empty \n");
   }
   memcpy(item, cb->tail, cb->sz);
   cb->tail = (char *)cb->tail + cb->sz;
@@ -85,8 +87,7 @@ typedef struct Perso {
   uint16_t owner[PORTNUMBER]; // takes the owners id
   bool file_read[PORTNUMBER], file_write[PORTNUMBER];
   bool blocking[PORTNUMBER];
-  circular_buffer buf_read;
-  circular_buffer buf_write;
+  circular_buffer buf_rdwr;
 } Perso;
 
 Perso perso;
@@ -94,9 +95,23 @@ Perso perso;
 struct cdev My_cdev;
 
 static ssize_t MyModule_read(struct file *filp, char *buff , size_t len, loff_t *off) {
-
+   // send from kernelSpace to userSpace
+  uint8_t BufR[8];
+  int i;
 
   printk(KERN_WARNING"MyMod: READ\n");
+
+  // retire content of ring buffer to local buffer une a la fois
+  for(i = 0; i < len; i++){
+    cb_pop_front(&perso.buf_rdwr, &BufR[i]);
+  }
+
+  printk(KERN_WARNING"MyMod: copied from ring buffer to local buffer \n");
+
+  copy_to_user(buff, &BufR, len);
+
+  printk(KERN_WARNING"MyMod: copied local buffer to user \n");
+
 
   return 0;
  
@@ -108,13 +123,19 @@ static ssize_t MyModule_write(struct file *filp, const char *buff , size_t len, 
   uint8_t BufW[8];
   int i;
 
+  printk(KERN_WARNING"MyMod: WRITE\n");
   copy_from_user(&BufW, buff, len);
 
-  for(i = 0; i < len; i++){
-    cb_push_back(&perso.buf_read, &BufW[i]);
+  for (i=0; i<8; i++){
+    printk(KERN_WARNING"MyMod: Local Buffer %d\n", BufW[i]);
   }
 
-  printk(KERN_WARNING"MyMod: WRITE\n");
+  // copy content of local buffer to ring buffer une a la fois
+  for(i = 0; i < len; i++){
+    cb_push_back(&perso.buf_rdwr, &BufW[i]);
+  }
+
+  
 
   return 0;
 
@@ -243,8 +264,7 @@ int n, i;
     perso.blocking[i] = false;
   }
 
-  cb_init(&perso.buf_read, 128, 8);
-  cb_init(&perso.buf_write, 128, 8);
+  cb_init(&perso.buf_rdwr, 128, 8);
 
   printk(KERN_WARNING"MyMod : Hello World ! MyModule_X = %u\n", MyModule_X);
 
@@ -263,8 +283,7 @@ int n;
 
   unregister_chrdev_region(My_dev, PORTNUMBER);
 
-  cb_free(&perso.buf_read);
-  cb_free(&perso.buf_write);
+  cb_free(&perso.buf_rdwr);
 
   printk(KERN_WARNING"MyMod : Goodbye cruel World !\n");
 
@@ -277,7 +296,8 @@ module_exit(mod_exit);
 // sudo insmod ./MyModule.ko
 // sudo rmmod MyModule
 // lsmod | grep MyModule
-///var/log/ dmesg | grep MyMod
+///var/log/ 
+// dmesg -w | grep MyMod
 
 
 

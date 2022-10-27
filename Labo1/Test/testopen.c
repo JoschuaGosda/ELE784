@@ -11,9 +11,7 @@ int main() {
 	   int 	fd,fd1;
 	   char tp = 0;
 	   int 	ret;
-
-	   
-		  
+	   	  
 	   
 	fd = open("/dev/MyModuleNode0", O_RDONLY);
 	   if (fd < 0) {
