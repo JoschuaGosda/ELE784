@@ -1,5 +1,4 @@
 #include "MyModule.h"
-#include "newbuffer.h"
 
 DEFINE_SPINLOCK(lock_access);
 #define PORTNUMBER 2
@@ -26,6 +25,62 @@ struct file_operations MyModule_fops = {
 	.release	=	MyModule_release
 };
 
+typedef struct circular_buffer
+{
+  void *buffer;     // data buffer
+  void *buffer_end; // end of data buffer
+  size_t capacity;  // maximum number of items in the buffer
+  size_t count;     // number of items in the buffer
+  size_t sz;        // size of each item in the buffer
+  void *head;       // pointer to head
+  void *tail;       // pointer to tail
+} circular_buffer;
+
+void cb_init(circular_buffer *cb, size_t capacity, size_t sz)
+{
+  cb->buffer = kmalloc(capacity * sz, GFP_KERNEL); // GFP_KERNEL - Allocate normal kernel ram. May sleep.
+  if (cb->buffer == NULL)
+    // handle error
+    cb->buffer_end = (char *)cb->buffer + capacity * sz;
+  cb->capacity = capacity;
+  cb->count = 0;
+  cb->sz = sz;
+  cb->head = cb->buffer;
+  cb->tail = cb->buffer;
+}
+
+void cb_free(circular_buffer *cb)
+{
+  kfree(cb->buffer);
+  // clear out other fields too, just to be safe
+}
+
+void cb_push_back(circular_buffer *cb, const void *item)
+{
+  if (cb->count == cb->capacity)
+  {
+    // handle error
+  }
+  memcpy(cb->head, item, cb->sz);
+  cb->head = (char *)cb->head + cb->sz;
+  if (cb->head == cb->buffer_end)
+    cb->head = cb->buffer;
+  cb->count++;
+}
+
+void cb_pop_front(circular_buffer *cb, void *item)
+{
+  if (cb->count == 0)
+  {
+    // handle error
+  }
+  memcpy(item, cb->tail, cb->sz);
+  cb->tail = (char *)cb->tail + cb->sz;
+  if (cb->tail == cb->buffer_end)
+    cb->tail = cb->buffer;
+  cb->count--;
+}
+
 typedef struct Perso {
   uint16_t owner[PORTNUMBER]; // takes the owners id
   bool file_read[PORTNUMBER], file_write[PORTNUMBER];
@@ -48,6 +103,16 @@ static ssize_t MyModule_read(struct file *filp, char *buff , size_t len, loff_t 
 }
 
 static ssize_t MyModule_write(struct file *filp, const char *buff , size_t len, loff_t *off) {
+
+  // copy from userSpace to kernelSpace
+  uint8_t BufW[8];
+  int i;
+
+  copy_from_user(&BufW, buff, len);
+
+  for(i = 0; i < len; i++){
+    cb_push_back(&perso.buf_read, &BufW[i]);
+  }
 
   printk(KERN_WARNING"MyMod: WRITE\n");
 
