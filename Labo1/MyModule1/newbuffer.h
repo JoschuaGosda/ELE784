@@ -17,3 +17,5 @@ void cb_free(circular_buffer *cb);
 void cb_push(circular_buffer *cb, const void *item);
 
 void cb_pop(circular_buffer *cb, void *item);
+
+size_t cb_count(circular_buffer *cb);

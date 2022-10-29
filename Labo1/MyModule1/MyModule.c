@@ -33,6 +33,7 @@ struct pData
   struct semaphore sem;
   struct spinlock splock;
   struct mutex mutex;
+  wait_queue_head_t inQ, outQ;
 } pData;
 
 struct pData pdata[PORTNUMBER];
@@ -68,6 +69,8 @@ static int __init mod_init(void)
     sema_init(&pdata[n].sem, 1);
     spin_lock_init(&pdata[n].splock);
     mutex_init(&pdata[n].mutex);
+    init_waitqueue_head(&pdata[n].outQ);
+    init_waitqueue_head(&pdata[n].outQ);
   }
 
   printk(KERN_WARNING "MyMod : Kernel Module initilized with number  %u\n", MyModule_X);
@@ -165,6 +168,7 @@ static ssize_t MyModule_read(struct file *filp, char *buff, size_t len, loff_t *
   // send from kernelSpace to userSpace
   uint8_t BufR[8];
   int i;
+  size_t count;
   struct pData *pdata_p = filp->private_data;
 
   printk(KERN_WARNING "MyMod: READ\n");
@@ -178,26 +182,40 @@ static ssize_t MyModule_read(struct file *filp, char *buff, size_t len, loff_t *
   }
   spin_unlock(&pdata_p->splock);
 
-  mutex_lock(&pdata_p->mutex);
+  mutex_lock(&pdata_p->mutex);// todo ??should be semaphore 
+
+  while(cb_count(&pdata_p->buf_rdwr) == 0 ){// no data in the cbuffer
+    if(filp->f_flags & O_NONBLOCK) {
+      printk(KERN_WARNING "MyMod: READ : NO DATA AVAILABLE AND NON BLOCK\n");
+      return -EAGAIN;
+    } else {
+        printk(KERN_WARNING "MyMod: READ : NO DATA BUT WILL WAIT\n");
+        wait_event_interruptible(pdata_p->inQ, cb_count(&pdata_p->buf_rdwr) > 0 ); // waiting for someting in the buffer
+      }
+  }
+  //data in the buffer , on ajuste le compte , plus petit entre ask et available
+  count = (len <= cb_count(&pdata_p->buf_rdwr)) ? len : cb_count(&pdata_p->buf_rdwr);
+
   // retire content of ring buffer to local buffer une a la fois
-  for (i = 0; i < len; i++)
-  {
+  
+  for (i = 0; i < count ; i++) {
     cb_pop(&pdata_p->buf_rdwr, &BufR[i]);
   }
   mutex_unlock(&pdata_p->mutex);
 
   printk(KERN_WARNING "MyMod: copied from ring buffer to local buffer \n");
 
-  if (copy_to_user(buff, &BufR, len) == 0)
-  {
+  if (copy_to_user(buff, &BufR, count) == 0) {
     printk(KERN_WARNING "MyMod: All bytes have been sent to user");
-  }
-  else
-  {
-    printk(KERN_WARNING "MyMod: Some bytes have not been sent to user");
+    return 0;
+  } else {
+      printk(KERN_WARNING "MyMod: Some bytes have been sent but sill available : %lu", count);
+      return count;
     // TODO: implement the mechanism depending on blocking / non-blocking
   }
-  return 0;
+  //something went wrong 
+  return -EFAULT; 
+  
 }
 
 static ssize_t MyModule_write(struct file *filp, const char *buff, size_t len, loff_t *off)
@@ -239,7 +257,7 @@ static ssize_t MyModule_write(struct file *filp, const char *buff, size_t len, l
 static int MyModule_release(struct inode *inode, struct file *filp)
 {
 
-  uint32_t numPort;
+  //uint32_t numPort;
   struct pData *pdata_p = filp->private_data;
 
   printk(KERN_WARNING "MyMod: RELEASE");

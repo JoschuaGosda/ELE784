@@ -17,12 +17,13 @@ int main() {
 		  
 	   
 	fd = open("/dev/MyModuleNode1", O_RDONLY);
+	//fd1 = open("/dev/MyModuleNode1", O_WRONLY | O_NONBLOCK);
 	   if (fd < 0) {
 		   printf("Erreur d'ouverture = %d\n", fd);
 		   return -1;
 	   }
 
-	read(fd, &val, sizeof(val));
+	read(fd, &val, 1);
 		printf("Data read  = %u\n", val);
 
  	close(fd);

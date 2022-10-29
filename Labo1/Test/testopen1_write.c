@@ -20,7 +20,7 @@ int main() {
 		   printf("Erreur d'ouverture = %d\n", fd);
 		   return -1;
 	   }
-	write(fd, &tp,sizeof(tp));
+	write(fd, &tp,1);
 
 
 

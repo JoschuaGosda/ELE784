@@ -48,5 +48,18 @@ void cb_pop(circular_buffer *cb, void *item) // pop front
   cb->count--;
 }
 
+/**
+ * circ buffer_count
+ *
+ * @brief Gets the actual count of the buffer
+ *
+ * @parameters : 	circular_buffer *cb 	Pointer to the buffer to get the count
+ *
+ * @return     :	size_t				Number of elements in the buffer
+ */
+size_t cb_count(circular_buffer *cb)
+{
+    return  cb->count;
+}
 
 
