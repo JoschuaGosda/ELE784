@@ -169,6 +169,7 @@ static ssize_t MyModule_read(struct file *filp, char *buff, size_t len, loff_t *
   uint8_t BufR[8];
   int i;
   size_t count;
+  unsigned long left ;
   struct pData *pdata_p = filp->private_data;
 
   printk(KERN_WARNING "MyMod: READ\n");
@@ -203,14 +204,16 @@ static ssize_t MyModule_read(struct file *filp, char *buff, size_t len, loff_t *
   }
   mutex_unlock(&pdata_p->mutex);
 
-  printk(KERN_WARNING "MyMod: copied from ring buffer to local buffer \n");
+  //printk(KERN_WARNING "MyMod: copied from ring buffer to local buffer \n");
 
-  if (copy_to_user(buff, &BufR, count) == 0) {
-    printk(KERN_WARNING "MyMod: All bytes have been sent to user");
+  left = copy_to_user(buff, &BufR, count);
+  if ( left == 0) {
+    printk(KERN_WARNING "MyMod: READ SUCCES");
     return 0;
   } else {
-      printk(KERN_WARNING "MyMod: Some bytes have been sent but sill available : %lu", count);
-      return count;
+      printk(KERN_WARNING "MyMod: Some bytes have been sent but sill available : %lu", (count-left));
+      //returning how many was really send
+      return (count-left) ;
     // TODO: implement the mechanism depending on blocking / non-blocking
   }
   //something went wrong 
@@ -223,6 +226,8 @@ static ssize_t MyModule_write(struct file *filp, const char *buff, size_t len, l
   // copy from userSpace to kernelSpace
   uint8_t BufW[8];
   int i;
+  size_t count;
+  unsigned long left ;
   struct pData *pdata_p = filp->private_data;
 
   spin_lock(&pdata_p->splock);
@@ -235,20 +240,48 @@ static ssize_t MyModule_write(struct file *filp, const char *buff, size_t len, l
   spin_unlock(&pdata_p->splock);
 
   printk(KERN_WARNING "MyMod: WRITE\n");
-  copy_from_user(&BufW, buff, len);
 
-  for (i = 0; i < 8; i++)
+  while(cb_count(&pdata_p->buf_rdwr) == BUFFER_CAPACITY ) { //buffer is full
+    if(filp->f_flags & O_NONBLOCK) {
+      printk(KERN_WARNING "MyMod: WRITE : BUFFER FULL AND NON BLOCK\n");
+      return -EAGAIN;
+    } else {
+        printk(KERN_WARNING "MyMod: WRITE : NO SPACE BUT WILL WAIT\n");
+        wait_event_interruptible(pdata_p->inQ, cb_count(&pdata_p->buf_rdwr) > BUFFER_CAPACITY  ); // waiting space in the buffer
+        // TODO should we check the exact user space ask ???
+      }
+
+  }
+  //place is buffer, ajust count. wich is minimal ASK or AVAILABLE ?
+  count = (len <= BUFFER_CAPACITY - cb_count(&pdata_p->buf_rdwr)) ? len : (BUFFER_CAPACITY - cb_count(&pdata_p->buf_rdwr)) ;
+
+  left = copy_from_user(&BufW, buff, count);
+
+  if(left == 0) {
+    //all data have been send 
+    printk(KERN_WARNING "MyMod: WRITE SUCCES\n");
+    mutex_lock(&pdata_p->mutex);
+    // copy content of local buffer to ring buffer une a la fois
+    for (i = 0; i < count; i++)
+    {
+    cb_push(&pdata_p->buf_rdwr, &BufW[i]);
+    }
+    printk(KERN_WARNING "MyMod: WRITE buff count : %lu",cb_count(&pdata_p->buf_rdwr));
+    mutex_unlock(&pdata_p->mutex);
+  }else {
+    //some data was not copy 
+    printk(KERN_WARNING "MyMod: WRITE Some bytes have been sent but sill available : %lu", (count-left));
+      //returning how many was really copy
+      return (count-left) ;
+    // TODO: implement the mechanism depending on blocking / non-blocking
+  }
+  
+  /*for (i = 0; i < 8; i++)
   {
     printk(KERN_WARNING "MyMod: Local Buffer %d\n", BufW[i]);
-  }
+  }*/
 
-  mutex_lock(&pdata_p->mutex);
-  // copy content of local buffer to ring buffer une a la fois
-  for (i = 0; i < len; i++)
-  {
-    cb_push(&pdata_p->buf_rdwr, &BufW[i]);
-  }
-  mutex_unlock(&pdata_p->mutex);
+
 
   return 0;
 }

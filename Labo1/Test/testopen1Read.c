@@ -16,7 +16,7 @@ int main() {
 	   
 		  
 	   
-	fd = open("/dev/MyModuleNode1", O_RDONLY);
+	fd = open("/dev/MyModuleNode0", O_RDONLY);
 	//fd1 = open("/dev/MyModuleNode1", O_WRONLY | O_NONBLOCK);
 	   if (fd < 0) {
 		   printf("Erreur d'ouverture = %d\n", fd);
