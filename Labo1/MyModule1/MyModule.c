@@ -1,6 +1,5 @@
 #include "MyModule.h"
 
-DEFINE_SPINLOCK(lock_access);
 #define PORTNUMBER 2
 #define BUFFER_CAPACITY 128
 #define BUFFER_ELEMENTSIZE 8
@@ -31,6 +30,9 @@ struct pData
   uint8_t numPort;
   bool fREAD;
   bool fWRITE;
+  struct semaphore sem;
+  struct spinlock splock;
+  struct mutex mutex;
 } pData;
 
 struct pData pdata[PORTNUMBER];
@@ -44,16 +46,18 @@ static int __init mod_init(void)
 
   int n;
 
+  // int alloc_chrdev_region(dev_t* dev, unsigned int firstminor, unsigned int count, char *name)
   alloc_chrdev_region(&My_dev, 0, PORTNUMBER, "MonPremierPilote");
 
   MyClass = class_create(THIS_MODULE, "MyModule");
   for (n = 0; n < PORTNUMBER; n++)
   {
+    // create un noeud dans /dev
     device_create(MyClass, NULL, (My_dev + n), NULL, "MyModuleNode%d", n);
   }
 
-  cdev_init(&My_cdev, &MyModule_fops);
-  cdev_add(&My_cdev, My_dev, PORTNUMBER);
+  cdev_init(&My_cdev, &MyModule_fops); // add pointer in struct cdev to struct file operations
+  cdev_add(&My_cdev, My_dev, PORTNUMBER); // add pilote to the kernel - struct cdev, dev number (/dev/My_dev1), int count
 
   for (n = 0; n < PORTNUMBER; n++)
   {
@@ -61,10 +65,97 @@ static int __init mod_init(void)
     pdata[n].fREAD = false;
     pdata[n].fWRITE = false;
     pdata[n].owner = -1;
+    sema_init(&pdata[n].sem, 1);
+    spin_lock_init(&pdata[n].splock);
+    mutex_init(&pdata[n].mutex);
   }
 
   printk(KERN_WARNING "MyMod : Kernel Module initilized with number  %u\n", MyModule_X);
 
+  return 0;
+}
+
+static int MyModule_open(struct inode *inode, struct file *filp)
+{
+
+  uint32_t numPort;
+  struct pData *pdata_p;
+
+  printk(KERN_WARNING "MyMod: OPEN");
+
+  // get the number of the device driver and connect to the right private data structure
+  numPort = MINOR(inode->i_rdev);
+  pdata_p = &pdata[numPort];
+  filp->private_data = pdata_p;
+
+  spin_lock(&pdata_p->splock);
+  if (pdata_p->owner < 0)
+  {
+    pdata_p->owner = current_uid().val;
+    printk(KERN_WARNING "MyMod: owner is set to %u", pdata_p->owner);
+  }
+  else if (pdata_p->owner != current_uid().val)
+  {
+    printk(KERN_WARNING "MyMod: current user is not the owner");
+    spin_unlock(&pdata_p->splock);
+    return -EACCES;
+  } else 
+  {
+    printk(KERN_WARNING "MyMod: current user is the owner");
+  }
+
+  switch (filp->f_flags & O_ACCMODE)
+  {
+  case O_RDONLY:
+    printk(KERN_WARNING "MyMod: O_RDONLY access");
+    // statements
+    if (pdata_p->fREAD)
+    {
+      spin_unlock(&pdata_p->splock);
+      return -EACCES;
+    }
+    else
+    {
+      pdata_p->fREAD = true;
+    }
+    break;
+
+  case O_WRONLY:
+    printk(KERN_WARNING "MyMod: O_WRONLY access");
+    // statements
+    if (pdata_p->fWRITE)
+    {
+      spin_unlock(&pdata_p->splock);
+      return -EACCES;
+    }
+    else
+    {
+      pdata_p->fWRITE = true;
+    }
+    break;
+
+  case O_RDWR:
+    printk(KERN_WARNING "MyMod: O_RDWR access");
+    if (pdata_p->fWRITE | pdata_p->fREAD)
+    {
+      spin_unlock(&pdata_p->splock);
+      return -EACCES;
+    }
+    else
+    {
+      pdata_p->fWRITE = true;
+      pdata_p->fREAD = true;
+    }
+    break;
+
+  default:
+    printk(KERN_WARNING "MyMod: file is tried to be opened differently than implemented");
+    // default statements
+  }
+  spin_unlock(&pdata_p->splock);
+
+    // TODO: Port Série doit être placé en mode Réception
+  printk(KERN_WARNING "MyMod: OPEN end\n");
   return 0;
 }
 
@@ -76,19 +167,24 @@ static ssize_t MyModule_read(struct file *filp, char *buff, size_t len, loff_t *
   int i;
   struct pData *pdata_p = filp->private_data;
 
+  printk(KERN_WARNING "MyMod: READ\n");
+
+  spin_lock(&pdata_p->splock);
   // TODO: protection d'access
   if (!((filp->f_flags & O_ACCMODE) == O_RDONLY || (filp->f_flags & O_ACCMODE) == O_RDWR))
   {
+    spin_unlock(&pdata_p->splock);
     return -EACCES;
   }
+  spin_unlock(&pdata_p->splock);
 
-  printk(KERN_WARNING "MyMod: READ\n");
-
+  mutex_lock(&pdata_p->mutex);
   // retire content of ring buffer to local buffer une a la fois
   for (i = 0; i < len; i++)
   {
     cb_pop(&pdata_p->buf_rdwr, &BufR[i]);
   }
+  mutex_unlock(&pdata_p->mutex);
 
   printk(KERN_WARNING "MyMod: copied from ring buffer to local buffer \n");
 
@@ -111,11 +207,14 @@ static ssize_t MyModule_write(struct file *filp, const char *buff, size_t len, l
   int i;
   struct pData *pdata_p = filp->private_data;
 
-  // TODO: protection d'access
+  spin_lock(&pdata_p->splock);
+  // protection d'access
   if (!((filp->f_flags & O_ACCMODE) == O_WRONLY || (filp->f_flags & O_ACCMODE) == O_RDWR))
   {
+    spin_unlock(&pdata_p->splock);
     return -EACCES;
   }
+  spin_unlock(&pdata_p->splock);
 
   printk(KERN_WARNING "MyMod: WRITE\n");
   copy_from_user(&BufW, buff, len);
@@ -125,88 +224,17 @@ static ssize_t MyModule_write(struct file *filp, const char *buff, size_t len, l
     printk(KERN_WARNING "MyMod: Local Buffer %d\n", BufW[i]);
   }
 
+  mutex_lock(&pdata_p->mutex);
   // copy content of local buffer to ring buffer une a la fois
   for (i = 0; i < len; i++)
   {
     cb_push(&pdata_p->buf_rdwr, &BufW[i]);
   }
+  mutex_unlock(&pdata_p->mutex);
+
   return 0;
 }
 
-static int MyModule_open(struct inode *inode, struct file *filp)
-{
-
-  uint32_t numPort;
-  struct pData *pdata_p;
-
-  printk(KERN_WARNING "MyMod: OPEN");
-
-  // get the port the owner want to joint
-  numPort = MINOR(inode->i_rdev);
-  pdata_p = &pdata[numPort];
-
-  if (pdata_p->owner < 0)
-  {
-    pdata_p->owner = current_uid().val;
-    printk(KERN_WARNING "MyMod: owner is set to %u", pdata_p->owner);
-  }
-  else if (pdata_p->owner != current_uid().val)
-  {
-    printk(KERN_WARNING "MyMod: current user is not the owner");
-    return -EACCES;
-  }
-
-  switch (filp->f_flags & O_ACCMODE)
-  {
-  case O_RDONLY:
-    printk(KERN_WARNING "MyMod: O_RDONLY access");
-    // statements
-    if (pdata_p->fREAD)
-    {
-      return -EACCES;
-    }
-    else
-    {
-      pdata_p->fREAD = true;
-    }
-    break;
-
-  case O_WRONLY:
-    printk(KERN_WARNING "MyMod: O_WRONLY access");
-    // statements
-    if (pdata_p->fWRITE)
-    {
-      return -EACCES;
-    }
-    else
-    {
-      pdata_p->fWRITE = true;
-    }
-    break;
-
-  case O_RDWR:
-    printk(KERN_WARNING "MyMod: O_RDWR access");
-    if (pdata_p->fWRITE | pdata_p->fREAD)
-    {
-      return -EACCES;
-    }
-    else
-    {
-      pdata_p->fWRITE = true;
-      pdata_p->fREAD = true;
-    }
-    break;
-
-  default:
-    printk(KERN_WARNING "MyMod: file is tried to be opened differently than implemented");
-    // default statements
-  }
-
-  filp->private_data = pdata_p;
-  // TODO: Port Série doit être placé en mode Réception
-  printk(KERN_WARNING "MyMod: OPEN end\n");
-  return 0;
-}
 
 static int MyModule_release(struct inode *inode, struct file *filp)
 {
@@ -216,6 +244,7 @@ static int MyModule_release(struct inode *inode, struct file *filp)
 
   printk(KERN_WARNING "MyMod: RELEASE");
 
+  spin_lock(&pdata_p->splock);
   switch (filp->f_flags & O_ACCMODE)
   {
   case O_RDONLY:
@@ -250,6 +279,10 @@ static int MyModule_release(struct inode *inode, struct file *filp)
     pdata_p->owner = -1;
     printk(KERN_WARNING "MyMod: owner is set to %d", pdata_p->owner);
   }
+  spin_unlock(&pdata_p->splock);
+
+  // desattach the private data 
+  filp->private_data = NULL;
 
   printk(KERN_WARNING "MyMod: RELEASE end\n");
 
