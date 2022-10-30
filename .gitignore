@@ -1,6 +1,11 @@
 # Prerequisites
 *.d
 
+# Files without extension
+*
+!/**/
+!*.*
+
 # Object files
 *.o
 *.ko
