@@ -4,7 +4,7 @@
 #define BUFFER_CAPACITY 128
 #define BUFFER_ELEMENTSIZE 8
 
-MODULE_AUTHOR("Bruno");
+MODULE_AUTHOR("TheBestTeam");
 MODULE_LICENSE("Dual BSD/GPL");
 
 int MyModule_X = 5;
@@ -33,7 +33,7 @@ struct pData
   struct semaphore sem;
   struct spinlock splock;
   struct mutex mutex;
-  wait_queue_head_t inQ, outQ;
+  wait_queue_head_t RdQ, WrQ;
 } pData;
 
 struct pData pdata[PORTNUMBER];
@@ -69,8 +69,8 @@ static int __init mod_init(void)
     sema_init(&pdata[n].sem, 1);
     spin_lock_init(&pdata[n].splock);
     mutex_init(&pdata[n].mutex);
-    init_waitqueue_head(&pdata[n].outQ);
-    init_waitqueue_head(&pdata[n].outQ);
+    init_waitqueue_head(&pdata[n].RdQ);
+    init_waitqueue_head(&pdata[n].WrQ);
   }
 
   printk(KERN_WARNING "MyMod : Kernel Module initilized with number  %u\n", MyModule_X);
@@ -95,11 +95,11 @@ static int MyModule_open(struct inode *inode, struct file *filp)
   if (pdata_p->owner < 0)
   {
     pdata_p->owner = current_uid().val;
-    printk(KERN_WARNING "MyMod: owner is set to %u", pdata_p->owner);
+    printk(KERN_WARNING "MyMod: New owner is set to %u", pdata_p->owner);
   }
-  else if (pdata_p->owner != current_uid().val)
+  else if ( 0 /*pdata_p->owner != current_uid().val */)//TODO 2e time the same owner open its the #3026 ??
   {
-    printk(KERN_WARNING "MyMod: current user is not the owner");
+    printk(KERN_WARNING "MyMod: ERR current user is :%u and new is : %u",pdata_p->owner , current_uid().val);
     spin_unlock(&pdata_p->splock);
     return -EACCES;
   } else 
@@ -139,7 +139,7 @@ static int MyModule_open(struct inode *inode, struct file *filp)
 
   case O_RDWR:
     printk(KERN_WARNING "MyMod: O_RDWR access");
-    if (pdata_p->fWRITE | pdata_p->fREAD)
+    if (pdata_p->fWRITE || pdata_p->fREAD)
     {
       spin_unlock(&pdata_p->splock);
       return -EACCES;
@@ -183,16 +183,18 @@ static ssize_t MyModule_read(struct file *filp, char *buff, size_t len, loff_t *
   }
   spin_unlock(&pdata_p->splock);
 
-  mutex_lock(&pdata_p->mutex);// todo ??should be semaphore 
-
+  //mutex_lock(&pdata_p->mutex);// todo ??should be semaphore 
+  down_interruptible(&pdata_p->sem);
   while(cb_count(&pdata_p->buf_rdwr) == 0 ){// no data in the cbuffer
+    up(&pdata_p->sem);
     if(filp->f_flags & O_NONBLOCK) {
       printk(KERN_WARNING "MyMod: READ : NO DATA AVAILABLE AND NON BLOCK\n");
       return -EAGAIN;
     } else {
         printk(KERN_WARNING "MyMod: READ : NO DATA BUT WILL WAIT\n");
-        wait_event_interruptible(pdata_p->inQ, cb_count(&pdata_p->buf_rdwr) > 0 ); // waiting for someting in the buffer
+        wait_event_interruptible(pdata_p->RdQ, cb_count(&pdata_p->buf_rdwr) > 0 ); // waiting for someting in the buffer
       }
+    down_interruptible(&pdata_p->sem);
   }
   //data in the buffer , on ajuste le compte , plus petit entre ask et available
   count = (len <= cb_count(&pdata_p->buf_rdwr)) ? len : cb_count(&pdata_p->buf_rdwr);
@@ -202,17 +204,18 @@ static ssize_t MyModule_read(struct file *filp, char *buff, size_t len, loff_t *
   for (i = 0; i < count ; i++) {
     cb_pop(&pdata_p->buf_rdwr, &BufR[i]);
   }
-  mutex_unlock(&pdata_p->mutex);
-
+ // mutex_unlock(&pdata_p->mutex);
+  up(&pdata_p->sem);
   //printk(KERN_WARNING "MyMod: copied from ring buffer to local buffer \n");
 
   left = copy_to_user(buff, &BufR, count);
+  wake_up_interruptible(&pdata_p->WrQ);
   if ( left == 0) {
     printk(KERN_WARNING "MyMod: READ SUCCES");
     return 0;
   } else {
       printk(KERN_WARNING "MyMod: Some bytes have been sent but sill available : %lu", (count-left));
-      //returning how many was really send
+      //returning how many data  was really send
       return (count-left) ;
     // TODO: implement the mechanism depending on blocking / non-blocking
   }
@@ -240,34 +243,37 @@ static ssize_t MyModule_write(struct file *filp, const char *buff, size_t len, l
   spin_unlock(&pdata_p->splock);
 
   printk(KERN_WARNING "MyMod: WRITE\n");
-
+  down_interruptible(&pdata_p->sem);
   while(cb_count(&pdata_p->buf_rdwr) == BUFFER_CAPACITY ) { //buffer is full
+    up(&pdata_p->sem);
     if(filp->f_flags & O_NONBLOCK) {
       printk(KERN_WARNING "MyMod: WRITE : BUFFER FULL AND NON BLOCK\n");
       return -EAGAIN;
     } else {
         printk(KERN_WARNING "MyMod: WRITE : NO SPACE BUT WILL WAIT\n");
-        wait_event_interruptible(pdata_p->inQ, cb_count(&pdata_p->buf_rdwr) > BUFFER_CAPACITY  ); // waiting space in the buffer
+        wait_event_interruptible(pdata_p->WrQ, cb_count(&pdata_p->buf_rdwr) < BUFFER_CAPACITY  ); // waiting space in the buffer
         // TODO should we check the exact user space ask ???
       }
-
+    down_interruptible(&pdata_p->sem);
   }
-  //place is buffer, ajust count. wich is minimal ASK or AVAILABLE ?
+  //place is buffer, ajust count. wich one is minimal ASK or AVAILABLE ?
   count = (len <= BUFFER_CAPACITY - cb_count(&pdata_p->buf_rdwr)) ? len : (BUFFER_CAPACITY - cb_count(&pdata_p->buf_rdwr)) ;
 
   left = copy_from_user(&BufW, buff, count);
-
+  wake_up(&pdata->RdQ);
   if(left == 0) {
     //all data have been send 
     printk(KERN_WARNING "MyMod: WRITE SUCCES\n");
-    mutex_lock(&pdata_p->mutex);
+    //mutex_lock(&pdata_p->mutex);
     // copy content of local buffer to ring buffer une a la fois
     for (i = 0; i < count; i++)
     {
     cb_push(&pdata_p->buf_rdwr, &BufW[i]);
     }
+    up(&pdata_p->sem);
+
     printk(KERN_WARNING "MyMod: WRITE buff count : %lu",cb_count(&pdata_p->buf_rdwr));
-    mutex_unlock(&pdata_p->mutex);
+    //mutex_unlock(&pdata_p->mutex);
   }else {
     //some data was not copy 
     printk(KERN_WARNING "MyMod: WRITE Some bytes have been sent but sill available : %lu", (count-left));

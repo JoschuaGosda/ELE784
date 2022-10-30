@@ -10,6 +10,7 @@
 int main() {
 	   int 	fd,fd1;
 	   char tp = 0;
+	   char tp1;
 	   int 	ret;
 	unsigned char  val ;
 
@@ -22,7 +23,7 @@ int main() {
 		   printf("Erreur d'ouverture = %d\n", fd);
 		   return -1;
 	   }
-
+	scanf("%c",&tp1);
 	read(fd, &val, 1);
 		printf("Data read  = %u\n", val);
 
