@@ -93,7 +93,7 @@ static int MyModule_open(struct inode *inode, struct file *filp) {
     if (pdata_p->owner < 0) {
         pdata_p->owner = current_uid().val;
         printk(KERN_WARNING "MyMod: New owner is set to %u", pdata_p->owner);
-    } else if (pdata_p->owner != current_uid().val)  // TODO 2e time the
+    } else if (0/*pdata_p->owner != current_uid().val*/)  // TODO 2e time the
                                                             // same owner open
                                                             // its the #3026 ??
     {
@@ -171,7 +171,8 @@ static ssize_t MyModule_read(struct file *filp, char *buff, size_t len,
         return -EACCES;
     }
     spin_unlock(&pdata_p->splock);
-
+   
+   
     // mutex_lock(&pdata_p->mutex);// todo ??should be semaphore
     if (down_interruptible(&pdata_p->sem)) {
         return -ERESTARTSYS;
@@ -185,8 +186,7 @@ static ssize_t MyModule_read(struct file *filp, char *buff, size_t len,
         } else {
             printk(KERN_WARNING "MyMod: READ : NO DATA BUT WILL WAIT\n");
             wait_event_interruptible(
-                pdata_p->RdQ, pdata_p->buf_rdwr.count >
-                                  0);  // waiting for someting in the buffer
+                pdata_p->RdQ, pdata_p->buf_rdwr.count > 0);  // waiting for someting in the buffer
         }
         if (down_interruptible(&pdata_p->sem)) {
             return -ERESTARTSYS;
@@ -225,6 +225,7 @@ static ssize_t MyModule_read(struct file *filp, char *buff, size_t len,
         // returning how many data  was really send
         retval = count - left;
     }
+   
     return retval;
 }
 
@@ -250,6 +251,7 @@ static ssize_t MyModule_write(struct file *filp, const char *buff, size_t len,
     if (down_interruptible(&pdata_p->sem)) {
         return -ERESTARTSYS;
     }
+
     while (cb_count(&pdata_p->buf_rdwr) == BUFFER_CAPACITY) {  // buffer is full
         up(&pdata_p->sem);
         if (filp->f_flags & O_NONBLOCK) {
@@ -259,8 +261,7 @@ static ssize_t MyModule_write(struct file *filp, const char *buff, size_t len,
             printk(KERN_WARNING "MyMod: WRITE : NO SPACE BUT WILL WAIT\n");
             wait_event_interruptible(
                 pdata_p->WrQ,
-                pdata_p->buf_rdwr.count <
-                    BUFFER_CAPACITY);  // waiting space in the buffer
+                pdata_p->buf_rdwr.count < BUFFER_CAPACITY);  // waiting space in the buffer
             // TODO should we check the exact user space ask ???
         }
         if (down_interruptible(&pdata_p->sem)) {
@@ -272,13 +273,14 @@ static ssize_t MyModule_write(struct file *filp, const char *buff, size_t len,
                 ? len
                 : (BUFFER_CAPACITY - cb_count(&pdata_p->buf_rdwr));
 
+    printk(KERN_WARNING "MyMod: WRITE count : %u\n",count);
     retval = count;
     left = copy_from_user(&BufW, buff, count);
     wake_up(&pdata->RdQ);
     if (left == 0) {
         // all data have been send
         printk(KERN_WARNING "MyMod: WRITE SUCCES\n");
-        // mutex_lock(&pdata_p->mutex);
+        mutex_lock(&pdata_p->mutex);
         //  copy content of local buffer to ring buffer une a la fois
         for (i = 0; i < count; i++) {
             cb_push(&pdata_p->buf_rdwr, &BufW[i]);
@@ -287,7 +289,7 @@ static ssize_t MyModule_write(struct file *filp, const char *buff, size_t len,
 
         printk(KERN_WARNING "MyMod: WRITE buff count : %lu",
                cb_count(&pdata_p->buf_rdwr));
-        // mutex_unlock(&pdata_p->mutex);
+        mutex_unlock(&pdata_p->mutex);
     } else {
         // some data was not copy from user space to kernel space, is not written to global buffer at all -> return 0
         printk(
@@ -358,15 +360,26 @@ static void __exit mod_exit(void) {
     int n;
 
     cdev_del(&My_cdev);
+    unregister_chrdev_region(My_dev, PORTNUMBER);
 
     for (n = 0; n < PORTNUMBER; n++) {
         device_destroy(MyClass, (My_dev + n));
     }
     class_destroy(MyClass);
 
-    unregister_chrdev_region(My_dev, PORTNUMBER);
-
-    // cb_free(&perso.buf_rdwr);
+     for (n = 0; n < PORTNUMBER; n++) {
+        cb_free(&pdata[n].buf_rdwr);
+        /*
+        pdata[n].fREAD = false;
+        pdata[n].fWRITE = false;
+        pdata[n].owner = -1;
+        sem_destroy(&pdata[n].sem);
+        spin_lock_destroy(&pdata[n].splock);
+        mutex_destroy(&pdata[n].mutex);
+        destroy_waitqueue_head(&pdata[n].RdQ);
+        destroy_waitqueue_head(&pdata[n].WrQ);
+        */
+    }
 
     printk(KERN_WARNING "MyMod : GOODBYE CRUEL WORLD !\n");
 }
