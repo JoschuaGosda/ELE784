@@ -161,7 +161,7 @@ static ssize_t MyModule_read(struct file *filp, char *buff, size_t len,
     unsigned long left;
     struct pData *pdata_p = filp->private_data;
 
-    printk(KERN_WARNING "MyMod: READ\n");
+    printk(KERN_WARNING "MyMod: READ ask:%lu\n",len);
 
     spin_lock(&pdata_p->splock);
     // TODO: protection d'access
@@ -188,12 +188,15 @@ static ssize_t MyModule_read(struct file *filp, char *buff, size_t len,
             wait_event_interruptible(
                 pdata_p->RdQ, pdata_p->buf_rdwr.count > 0);  // waiting for someting in the buffer
         }
+	printk(KERN_WARNING "MyMod: READ : WAIT IS OVER\n");
+	
         if (down_interruptible(&pdata_p->sem)) {
             return -ERESTARTSYS;
         }
     }
     // data in the buffer , on ajuste le compte , plus petit entre ask et
     // available
+	
     count = (len <= cb_count(&pdata_p->buf_rdwr))
                 ? len
                 : cb_count(&pdata_p->buf_rdwr);
@@ -206,15 +209,17 @@ static ssize_t MyModule_read(struct file *filp, char *buff, size_t len,
     for (i = 0; i < count; i++) {
         cb_pop(&pdata_p->buf_rdwr, &(BufR[i]));
     }
+  printk(KERN_WARNING "MyMod: Read after pop buff_count : %lu",cb_count(&pdata_p->buf_rdwr));
     // mutex_unlock(&pdata_p->mutex);
     up(&pdata_p->sem);
+    wake_up_interruptible(&pdata_p->WrQ);
     // printk(KERN_WARNING "MyMod: copied from ring buffer to local buffer \n");
-    printk(KERN_WARNING "MyMod: popped data elements from global buffer");
-
+    //printk(KERN_WARNING "MyMod: popped data elements from global buffer");
+/*
     // retval is number of elements that are taken from global
     retval = count;
     left = copy_to_user(buff, &BufR, count);
-    wake_up_interruptible(&pdata_p->WrQ);
+
     if (left == 0) {
         printk(KERN_WARNING "MyMod: READ SUCCES");
     } else {
@@ -226,7 +231,8 @@ static ssize_t MyModule_read(struct file *filp, char *buff, size_t len,
         retval = count - left;
     }
    
-    return retval;
+    return retval;*/
+    return len;
 }
 
 static ssize_t MyModule_write(struct file *filp, const char *buff, size_t len,
@@ -252,7 +258,7 @@ static ssize_t MyModule_write(struct file *filp, const char *buff, size_t len,
         return -ERESTARTSYS;
     }
 
-    while (cb_count(&pdata_p->buf_rdwr) == BUFFER_CAPACITY) {  // buffer is full
+    while (cb_count(&pdata_p->buf_rdwr) == (BUFFER_CAPACITY)) {  // buffer is full(if buffsize = 10 then 0 to 9
         up(&pdata_p->sem);
         if (filp->f_flags & O_NONBLOCK) {
             printk(KERN_WARNING "MyMod: WRITE : BUFFER FULL AND NON BLOCK\n");
@@ -263,6 +269,7 @@ static ssize_t MyModule_write(struct file *filp, const char *buff, size_t len,
                 pdata_p->WrQ,
                 pdata_p->buf_rdwr.count < BUFFER_CAPACITY);  // waiting space in the buffer
             // TODO should we check the exact user space ask ???
+		printk(KERN_WARNING "MyMod: WRITE : WAIT IS OVER\n");
         }
         if (down_interruptible(&pdata_p->sem)) {
             return -ERESTARTSYS;
@@ -273,23 +280,24 @@ static ssize_t MyModule_write(struct file *filp, const char *buff, size_t len,
                 ? len
                 : (BUFFER_CAPACITY - cb_count(&pdata_p->buf_rdwr));
 
-    printk(KERN_WARNING "MyMod: WRITE count : %u\n",count);
+    printk(KERN_WARNING "MyMod: WRITE count : %lu\n",count);
     retval = count;
     left = copy_from_user(&BufW, buff, count);
-    wake_up(&pdata->RdQ);
+    
     if (left == 0) {
         // all data have been send
         printk(KERN_WARNING "MyMod: WRITE SUCCES\n");
-        mutex_lock(&pdata_p->mutex);
+        //mutex_lock(&pdata_p->mutex);
         //  copy content of local buffer to ring buffer une a la fois
         for (i = 0; i < count; i++) {
             cb_push(&pdata_p->buf_rdwr, &BufW[i]);
         }
+	wake_up_interruptible(&pdata->RdQ);
         up(&pdata_p->sem);
 
         printk(KERN_WARNING "MyMod: WRITE buff count : %lu",
                cb_count(&pdata_p->buf_rdwr));
-        mutex_unlock(&pdata_p->mutex);
+        //mutex_unlock(&pdata_p->mutex);
     } else {
         // some data was not copy from user space to kernel space, is not written to global buffer at all -> return 0
         printk(
@@ -305,24 +313,24 @@ static int MyModule_release(struct inode *inode, struct file *filp) {
     // uint32_t numPort;
     struct pData *pdata_p = filp->private_data;
 
-    printk(KERN_WARNING "MyMod: RELEASE");
+    //printk(KERN_WARNING "MyMod: RELEASE");
 
     spin_lock(&pdata_p->splock);
     switch (filp->f_flags & O_ACCMODE) {
         case O_RDONLY:
-            printk(KERN_WARNING "MyMod: O_RDONLY acces reset");
+            //printk(KERN_WARNING "MyMod: O_RDONLY acces reset");
             // statements
             pdata_p->fREAD = false;
             break;
 
         case O_WRONLY:
-            printk(KERN_WARNING "MyMod: O_WRONLY access reset");
+            //printk(KERN_WARNING "MyMod: O_WRONLY access reset");
             // statements
             pdata_p->fWRITE = false;
             break;
 
         case O_RDWR:
-            printk(KERN_WARNING "MyMod: O_RDWR access reset");
+            //printk(KERN_WARNING "MyMod: O_RDWR access reset");
             pdata_p->fWRITE = false;
             pdata_p->fREAD = false;
             break;
@@ -334,13 +342,12 @@ static int MyModule_release(struct inode *inode, struct file *filp) {
                    "implemented");
     }
 
-    printk(KERN_WARNING "MyMod: fWRITE flag: %u\n", pdata_p->fWRITE);
-    printk(KERN_WARNING "MyMod: fREAD flag: %u\n", pdata_p->fREAD);
+    printk(KERN_WARNING "MyMod:WRITER:%u READER:%u\n ", pdata_p->fWRITE, pdata_p->fREAD);
 
     // reset owner if no current read and write
     if (!(pdata_p->fREAD | pdata_p->fWRITE)) {
         pdata_p->owner = -1;
-        printk(KERN_WARNING "MyMod: owner is set to %d", pdata_p->owner);
+        //printk(KERN_WARNING "MyMod: owner is set to %d", pdata_p->owner);
     }
     spin_unlock(&pdata_p->splock);
 
@@ -381,7 +388,7 @@ static void __exit mod_exit(void) {
         */
     }
 
-    printk(KERN_WARNING "MyMod : GOODBYE CRUEL WORLD !\n");
+    printk(KERN_WARNING "MyMod :------CLOSING---- !\n");
 }
 
 module_init(mod_init);
