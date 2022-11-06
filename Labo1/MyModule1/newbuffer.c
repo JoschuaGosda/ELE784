@@ -1,6 +1,6 @@
 #include <stddef.h>
-
 #include "newbuffer.h"
+
 void cb_init(circular_buffer *cb, size_t capacity, size_t sz)
 {
   cb->buffer = kmalloc(capacity * sz, GFP_KERNEL); // GFP_KERNEL - Allocate normal kernel ram. May sleep.

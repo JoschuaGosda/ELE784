@@ -21,7 +21,7 @@ int main() {
 	printf("How many data to write\n");
      scanf("%d",&tp1);
      printf("Okay %d data to write\n",tp1);
-    char tp [tp1] ;
+    char tp [tp1];
     ret = write(fd, &tp,tp1);
 
     if (ret < 1) {

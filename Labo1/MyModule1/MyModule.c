@@ -2,7 +2,7 @@
 
 #define PORTNUMBER 2
 #define BUFFER_CAPACITY 3
-#define BUFFER_ELEMENTSIZE 8
+#define BUFFER_ELEMENTSIZE 1 //element size is 1 byte
 
 MODULE_AUTHOR("TheBestTeam");
 MODULE_LICENSE("Dual BSD/GPL");
@@ -155,7 +155,7 @@ static int MyModule_open(struct inode *inode, struct file *filp) {
 static ssize_t MyModule_read(struct file *filp, char *buff, size_t len,
                              loff_t *off) {
     // send from kernelSpace to userSpace
-    uint8_t BufR[8];
+    char BufR[8];
     int i, retval;
     size_t count;
     unsigned long left;
@@ -177,26 +177,31 @@ static ssize_t MyModule_read(struct file *filp, char *buff, size_t len,
     if (down_interruptible(&pdata_p->sem)) {
         return -ERESTARTSYS;
     }
-    while (cb_count(&pdata_p->buf_rdwr) == 0) {  // no data in the cbuffer
+    if (pdata_p->buf_rdwr.count == 0) {  // no data in the cbuffer
         up(&pdata_p->sem);
+
         if (filp->f_flags & O_NONBLOCK) {
             printk(KERN_WARNING
                    "MyMod: READ : NO DATA AVAILABLE AND NON BLOCK\n");
             return -EAGAIN;
         } else {
             printk(KERN_WARNING "MyMod: READ : NO DATA BUT WILL WAIT\n");
-            wait_event_interruptible(
-                pdata_p->RdQ, pdata_p->buf_rdwr.count > 0);  // waiting for someting in the buffer
+            if (wait_event_interruptible(
+                pdata_p->RdQ, pdata_p->buf_rdwr.count > 0)) { 
+                      // waiting for someting in the buffer
+                return -ERESTARTSYS;    
+            }
         }
-	printk(KERN_WARNING "MyMod: READ : WAIT IS OVER\n");
+
+	    printk(KERN_WARNING "MyMod: READ : WAIT IS OVER\n");
 	
         if (down_interruptible(&pdata_p->sem)) {
             return -ERESTARTSYS;
         }
     }
+
     // data in the buffer , on ajuste le compte , plus petit entre ask et
     // available
-	
     count = (len <= cb_count(&pdata_p->buf_rdwr))
                 ? len
                 : cb_count(&pdata_p->buf_rdwr);
@@ -209,13 +214,14 @@ static ssize_t MyModule_read(struct file *filp, char *buff, size_t len,
     for (i = 0; i < count; i++) {
         cb_pop(&pdata_p->buf_rdwr, &(BufR[i]));
     }
-  printk(KERN_WARNING "MyMod: Read after pop buff_count : %lu",cb_count(&pdata_p->buf_rdwr));
+    printk(KERN_WARNING "MyMod: Read after pop buff_count : %lu",cb_count(&pdata_p->buf_rdwr));
     // mutex_unlock(&pdata_p->mutex);
-    up(&pdata_p->sem);
+    
     wake_up_interruptible(&pdata_p->WrQ);
+    up(&pdata_p->sem);
     // printk(KERN_WARNING "MyMod: copied from ring buffer to local buffer \n");
     //printk(KERN_WARNING "MyMod: popped data elements from global buffer");
-/*
+
     // retval is number of elements that are taken from global
     retval = count;
     left = copy_to_user(buff, &BufR, count);
@@ -231,14 +237,13 @@ static ssize_t MyModule_read(struct file *filp, char *buff, size_t len,
         retval = count - left;
     }
    
-    return retval;*/
-    return len;
+    return retval;
 }
 
 static ssize_t MyModule_write(struct file *filp, const char *buff, size_t len,
                               loff_t *off) {
     // copy from userSpace to kernelSpace
-    uint8_t BufW[8];
+    char BufW[8];
     int retval, i;
     size_t count;
     unsigned long left;
@@ -254,58 +259,66 @@ static ssize_t MyModule_write(struct file *filp, const char *buff, size_t len,
     spin_unlock(&pdata_p->splock);
 
     printk(KERN_WARNING "MyMod: WRITE\n");
-    if (down_interruptible(&pdata_p->sem)) {
+    if (down_interruptible(&pdata_p->sem)) { // returns 0 if sucess
         return -ERESTARTSYS;
     }
 
-    while (cb_count(&pdata_p->buf_rdwr) == (BUFFER_CAPACITY)) {  // buffer is full(if buffsize = 10 then 0 to 9
+    if (pdata_p->buf_rdwr.count == BUFFER_CAPACITY) {  // buffer is full(if buffsize = 10 then 0 to 9
         up(&pdata_p->sem);
+
         if (filp->f_flags & O_NONBLOCK) {
             printk(KERN_WARNING "MyMod: WRITE : BUFFER FULL AND NON BLOCK\n");
             return -EAGAIN;
         } else {
             printk(KERN_WARNING "MyMod: WRITE : NO SPACE BUT WILL WAIT\n");
-            wait_event_interruptible(
+            if (wait_event_interruptible(
                 pdata_p->WrQ,
-                pdata_p->buf_rdwr.count < BUFFER_CAPACITY);  // waiting space in the buffer
-            // TODO should we check the exact user space ask ???
-		printk(KERN_WARNING "MyMod: WRITE : WAIT IS OVER\n");
+                pdata_p->buf_rdwr.count < BUFFER_CAPACITY)) {
+                    return -ERESTARTSYS;
+            }
         }
+		printk(KERN_WARNING "MyMod: WRITE : WAIT IS OVER\n");
+        
         if (down_interruptible(&pdata_p->sem)) {
             return -ERESTARTSYS;
         }
     }
+
     // place is buffer, ajust count. wich one is minimal ASK or AVAILABLE ?
-    count = (len <= BUFFER_CAPACITY - cb_count(&pdata_p->buf_rdwr))
+    count = (len <= BUFFER_CAPACITY - pdata_p->buf_rdwr.count)
                 ? len
-                : (BUFFER_CAPACITY - cb_count(&pdata_p->buf_rdwr));
+                : (BUFFER_CAPACITY - pdata_p->buf_rdwr.count);
 
     printk(KERN_WARNING "MyMod: WRITE count : %lu\n",count);
+
     retval = count;
-    left = copy_from_user(&BufW, buff, count);
+
+    if (count > 0){
+        left = copy_from_user(&BufW, buff, count);
     
-    if (left == 0) {
-        // all data have been send
-        printk(KERN_WARNING "MyMod: WRITE SUCCES\n");
-        //mutex_lock(&pdata_p->mutex);
-        //  copy content of local buffer to ring buffer une a la fois
-        for (i = 0; i < count; i++) {
-            cb_push(&pdata_p->buf_rdwr, &BufW[i]);
+        if (left == 0) {
+            // all data have been send
+            printk(KERN_WARNING "MyMod: WRITE SUCCES\n");
+            //mutex_lock(&pdata_p->mutex);
+            //  copy content of local buffer to ring buffer une a la fois
+
+            for (i = 0; i < count; i++) {
+                cb_push(&pdata_p->buf_rdwr, &(BufW[i]));
+            }
+            up(&pdata_p->sem);
+            wake_up_interruptible(&pdata->RdQ);
+            
+            printk(KERN_WARNING "MyMod: WRITE buff count : %lu",
+                cb_count(&pdata_p->buf_rdwr));
+            //mutex_unlock(&pdata_p->mutex);
+        } else {
+            // some data was not copy from user space to kernel space, is not written to global buffer at all -> return 0
+            printk(
+                KERN_WARNING
+                "MyMod: WRITE problem when copying from user space to kernel space");
+            retval = count - left;
         }
-	wake_up_interruptible(&pdata->RdQ);
-        up(&pdata_p->sem);
-
-        printk(KERN_WARNING "MyMod: WRITE buff count : %lu",
-               cb_count(&pdata_p->buf_rdwr));
-        //mutex_unlock(&pdata_p->mutex);
-    } else {
-        // some data was not copy from user space to kernel space, is not written to global buffer at all -> return 0
-        printk(
-            KERN_WARNING
-            "MyMod: WRITE problem when copying from user space to kernel space");
-        retval = count - left;
     }
-
     return retval;
 }
 
