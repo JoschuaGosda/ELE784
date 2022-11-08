@@ -1,6 +1,11 @@
 # Prerequisites
 *.d
 
+# Files without extension
+*
+!/**/
+!*.*
+
 # Object files
 *.o
 *.ko
@@ -50,3 +55,4 @@ modules.order
 Module.symvers
 Mkfile.old
 dkms.conf
+.cache.mk

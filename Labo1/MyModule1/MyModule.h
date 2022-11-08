@@ -7,6 +7,10 @@
 
 #include <linux/kernel.h>
 #include <linux/kthread.h>
+#include <linux/kdev_t.h>
+#include <linux/wait.h>
+#include <linux/err.h>
+#include <linux/sched.h> 
 
 #include <linux/cdev.h>
 #include <linux/slab.h>
