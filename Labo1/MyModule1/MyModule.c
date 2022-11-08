@@ -21,7 +21,9 @@ struct file_operations MyModule_fops = {
     .read = MyModule_read,
     .write = MyModule_write,
     .open = MyModule_open,
-    .release = MyModule_release};
+    .release = MyModule_release
+    .ioctl = MyModule_ioctl
+};
 
 struct pData
 {
@@ -289,6 +291,101 @@ static int MyModule_release(struct inode *inode, struct file *filp)
   // TODO: Et si le mode d’ouverture était O_RDONL Y ou O_RDWR, la Réception du Port Série doit être interrompue afin d’arrêter de recevoir des données
 
   return 0;
+}
+
+
+static int MyModule_ioctl(struct inode *inode, struct file *filp, unsigned int cmd, unsigned long arg) {
+    int retval = 0;
+    struct pData *pdata_p = filp->private_data;
+    printk(KERN_WARNING "MyMod: IOCTL\n");
+
+    switch(cmd) {
+       case SETBAUDRATE : // Execute SetBaudRate function
+            if (SetBaudRate(*inode, *filp, arg)) {
+		          retval = 1;
+	          } else return -ENOTTY;
+            break;
+
+       case SETDATASIZE : // Execute SetDataSize function
+            if (SetDataSize(*inode, *filp, arg)) {
+		          retval = 1;
+	          } else return -ENOTTY;
+            break;
+
+       case SETPARITY : // Execute SetParity function
+            if (SetParity(*inode, *filp, arg)) {
+		          retval = 1;
+	          } else return -ENOTTY;
+            break;
+
+       case GETBUFFERSIZE : // Execute GetBufSize function
+		        spin_lock(&pdata_p->splock);  
+		        if(GetBufSize(&pdata_p->buf_rdwr,size_t arg)) {
+              retval = 1;
+            } else {
+              return -ENOTTY;  
+            }
+            break;
+
+       case SETBUFFERSIZE : // Execute SetBufSize function
+		SetBufSize(size_t arg);
+            break;
+       default : return -ENOTTY;
+     
+    }
+    return retval;
+}
+
+static int SetBaudRate(struct inode *inode, struct file *filp, unsigned long arg) {
+    int retval = 0;
+    if (arg<50 && arg>115200) {
+     	printk(KERN_WARNING "Mymod: The speed must be between 50 and 115200 Baud.\n");
+	return -ENOTTY;
+    } else {	
+	// mettre instruction pour changer cette vitesse
+	retval = 1;
+    }
+    return retavl;
+}
+
+static int SetDataSize(struct inode *inode, struct file *filp, unsigned long arg) {
+    int retval = 0;
+    if (arg<5 && arg>8) {
+     	printk(KERN_WARNING "Mymod: The size of the communication data must be betwween 5 and 8 bits.\n");
+	return -ENOTTY;
+    } else {	
+	// mettre instruction pour taille des données
+	retval = 1;
+    }
+    return retavl;
+}
+
+static int SetParity(struct inode *inode, struct file *filp, unsigned long arg) {
+    int retval = 0;
+    if (arg>3) {
+	printk(KERN_WARNING "Mymod: The allowed parity types are : no parity (0), odd parity (1) and even parity (2).\n");
+	return -ENOTTY;
+    } else {	
+	// mettre instruction pour changer la parité
+	retval = 1;
+    }
+    return retavl;
+
+}
+
+static int GetBufSize(struct inode *inode, struct file *filp, unsigned long arg) {
+    int retval = 0;
+    retval = cb_count(&pdata[n].buf_rdwr);
+    return retavl;
+
+}
+
+//pas compris
+static int SetBufSize(struct inode *inode, struct file *filp, unsigned long arg) {
+    int retval = 0;
+    retval = cb_count(&pdata[n].buf_rdwr);
+    return retavl;
+
 }
 
 static void __exit mod_exit(void)

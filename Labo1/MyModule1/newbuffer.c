@@ -48,5 +48,22 @@ void cb_pop(circular_buffer *cb, void *item) // pop front
   cb->count--;
 }
 
+void set_cbbuffer_size(size_t newcapacity {
+
+  cb->buffer = krealloc(size * sz, GFP_KERNEL); // GFP_KERNEL - Allocate normal kernel ram. May sleep.
+  if (cb->buffer == NULL)
+    // handle error
+    cb->buffer_end = (char *)cb->buffer + size * sz;
+  cb->capacity = capacity;
+  cb->count = 0;
+  cb->sz = sz;
+  cb->head = cb->buffer;
+  cb->tail = cb->buffer;
+}
+
+}
+
+
+
 
 
