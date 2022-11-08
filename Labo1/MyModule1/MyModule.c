@@ -16,7 +16,6 @@ EXPORT_SYMBOL_GPL(MyModule_X);
 dev_t My_dev;
 struct class *MyClass;
 
-<<<<<<< HEAD
 struct file_operations MyModule_fops = {
     .owner = THIS_MODULE,
     .read = MyModule_read,
@@ -36,24 +35,6 @@ struct pData
   struct semaphore sem;
   struct spinlock splock;
   struct mutex mutex;
-=======
-struct file_operations MyModule_fops = {.owner = THIS_MODULE,
-                                        .read = MyModule_read,
-                                        .write = MyModule_write,
-                                        .open = MyModule_open,
-                                        .release = MyModule_release};
-
-struct pData {
-    int8_t owner;  // takes the owners id
-    circular_buffer buf_rdwr;
-    uint8_t numPort;
-    bool fREAD;
-    bool fWRITE;
-    struct semaphore sem;
-    struct spinlock splock;
-    struct mutex mutex;
-    wait_queue_head_t RdQ, WrQ;
->>>>>>> 8187266431f4f5c1ec4f069dd907e7d69c554284
 } pData;
 
 struct pData pdata[PORTNUMBER];
@@ -398,7 +379,6 @@ static int MyModule_release(struct inode *inode, struct file *filp) {
     return 0;
 }
 
-<<<<<<< HEAD
 
 static int MyModule_ioctl(struct inode *inode, struct file *filp, unsigned int cmd, unsigned long arg) {
     int retval = 0;
@@ -505,10 +485,8 @@ static void __exit mod_exit(void)
     device_destroy(MyClass, (My_dev + n));
   }
   class_destroy(MyClass);
-=======
 static void __exit mod_exit(void) {
     int n;
->>>>>>> 8187266431f4f5c1ec4f069dd907e7d69c554284
 
     cdev_del(&My_cdev);
     unregister_chrdev_region(My_dev, PORTNUMBER);
