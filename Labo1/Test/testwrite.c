@@ -12,7 +12,7 @@ int main() {
     unsigned char tp [2] = {1, 2};
     int ret;
 
-    fd = open("/dev/MyModuleNode0", O_WRONLY );
+    fd = open("/dev/MyModuleNode0", O_WRONLY | O_NONBLOCK);
     if (fd < 0) {
         printf("Erreur d'ouverture = %d\n", fd);
         return -1;

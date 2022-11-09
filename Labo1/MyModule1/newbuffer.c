@@ -1,6 +1,8 @@
 #include <stddef.h>
 #include "newbuffer.h"
 
+
+
 void cb_init(circular_buffer *cb, size_t capacity, size_t sz)
 {
   cb->buffer = kmalloc(capacity * sz, GFP_KERNEL); // GFP_KERNEL - Allocate normal kernel ram. May sleep.
@@ -48,38 +50,43 @@ void cb_pop(circular_buffer *cb, void *item) // pop front
   cb->count--;
 }
 
-<<<<<<< HEAD
-void set_cbbuffer_size(size_t newcapacity {
+int cb_setBufferSize(struct pData *pdata_p, size_t newcapacity) {
 
-  cb->buffer = krealloc(size * sz, GFP_KERNEL); // GFP_KERNEL - Allocate normal kernel ram. May sleep.
-  if (cb->buffer == NULL)
-    // handle error
-    cb->buffer_end = (char *)cb->buffer + size * sz;
-  cb->capacity = capacity;
-  cb->count = 0;
-  cb->sz = sz;
-  cb->head = cb->buffer;
-  cb->tail = cb->buffer;
+  circular_buffer new_b;
+  int i;
+  int count = pdata_p->buf_rdwr.count;
+  if (count > newcapacity) {
+    return 0;
+  }
+
+  printk(KERN_WARNING "MyMod: function setBufferSize: value of newcapacity %d \n", newcapacity);
+  cb_init(&new_b, newcapacity, BUFFER_ELEMENTSIZE);
+  printk(KERN_WARNING "MyMod: function setBufferSize: new_b capacity %d \n", new_b.capacity);
+
+  for (i = 0; i < count; i++) {
+    printk(KERN_WARNING "MyMod: function setBufferSize: for loop \n");
+    int a;
+    cb_pop(&pdata_p->buf_rdwr, &a);      
+    cb_push(&new_b, &a);
+  }
+  cb_free(&pdata_p->buf_rdwr);
+  printk(KERN_WARNING "MyMod: function setBufferSize: size of new buffer is %d \n", new_b.capacity);
+  pdata_p->buf_rdwr = new_b;
+  return 1;
 }
 
+size_t cb_getBufferSize(circular_buffer *cb) {
+  return cb->capacity * cb->sz;
 }
 
 
-
-=======
-/**
- * circ buffer_count
- *
- * @brief Gets the actual count of the buffer
- *
- * @parameters : 	circular_buffer *cb 	Pointer to the buffer to get the count
- *
- * @return     :	size_t				Number of elements in the buffer
- */
 size_t cb_count(circular_buffer *cb)
 {
     return  cb->count;
 }
->>>>>>> 8187266431f4f5c1ec4f069dd907e7d69c554284
+
+
+
+
 
 

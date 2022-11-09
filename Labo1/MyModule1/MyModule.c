@@ -1,8 +1,9 @@
-#include "MyModule.h"
-
 #define PORTNUMBER 2
 #define BUFFER_CAPACITY 3
 #define BUFFER_ELEMENTSIZE 1 //element size is 1 byte
+
+#include "MyModule.h"
+
 
 MODULE_AUTHOR("TheBestTeam");
 MODULE_LICENSE("Dual BSD/GPL");
@@ -21,21 +22,11 @@ struct file_operations MyModule_fops = {
     .read = MyModule_read,
     .write = MyModule_write,
     .open = MyModule_open,
-    .release = MyModule_release
-    .ioctl = MyModule_ioctl
+    .release = MyModule_release,
+    .unlocked_ioctl = MyModule_ioctl
 };
 
-struct pData
-{
-  int8_t owner; // takes the owners id
-  circular_buffer buf_rdwr;
-  uint8_t numPort;
-  bool fREAD;
-  bool fWRITE;
-  struct semaphore sem;
-  struct spinlock splock;
-  struct mutex mutex;
-} pData;
+
 
 struct pData pdata[PORTNUMBER];
 
@@ -266,7 +257,9 @@ static ssize_t MyModule_write(struct file *filp, const char *buff, size_t len,
         return -ERESTARTSYS;
     }
 
-    if (pdata_p->buf_rdwr.count == BUFFER_CAPACITY) {  // buffer is full(if buffsize = 10 then 0 to 9
+    int buffer_capacity = cb_getBufferSize(&pdata_p->buf_rdwr);
+
+    if (pdata_p->buf_rdwr.count == buffer_capacity) {  // buffer is full(if buffsize = 10 then 0 to 9
         up(&pdata_p->sem);
 
         if (filp->f_flags & O_NONBLOCK) {
@@ -276,7 +269,7 @@ static ssize_t MyModule_write(struct file *filp, const char *buff, size_t len,
             printk(KERN_WARNING "MyMod: WRITE : NO SPACE BUT WILL WAIT\n");
             if (wait_event_interruptible(
                 pdata_p->WrQ,
-                pdata_p->buf_rdwr.count < BUFFER_CAPACITY)) {
+                pdata_p->buf_rdwr.count < buffer_capacity)) {
                     return -ERESTARTSYS;
             }
         }
@@ -288,9 +281,9 @@ static ssize_t MyModule_write(struct file *filp, const char *buff, size_t len,
     }
 
     // place is buffer, ajust count. wich one is minimal ASK or AVAILABLE ?
-    count = (len <= BUFFER_CAPACITY - pdata_p->buf_rdwr.count)
+    count = (len <= buffer_capacity - pdata_p->buf_rdwr.count)
                 ? len
-                : (BUFFER_CAPACITY - pdata_p->buf_rdwr.count);
+                : (buffer_capacity - pdata_p->buf_rdwr.count);
 
     printk(KERN_WARNING "MyMod: WRITE count : %lu\n",count);
 
@@ -380,111 +373,98 @@ static int MyModule_release(struct inode *inode, struct file *filp) {
 }
 
 
-static int MyModule_ioctl(struct inode *inode, struct file *filp, unsigned int cmd, unsigned long arg) {
+static long MyModule_ioctl(struct file *filp, unsigned int cmd, unsigned long arg) {
     int retval = 0;
     struct pData *pdata_p = filp->private_data;
     printk(KERN_WARNING "MyMod: IOCTL\n");
 
+    if (_IOC_TYPE(cmd) != IOC_MAGIC) return -ENOTTY;
+    if (_IOC_NR(cmd) > IOC_MAXNR) return -ENOTTY;
+
+    //spin_lock(&pdata_p->splock); 
+    //spin_unlock(&pdata_p->splock); 
+
     switch(cmd) {
        case SETBAUDRATE : // Execute SetBaudRate function
-            if (SetBaudRate(*inode, *filp, arg)) {
+            if (SetBaudRate(arg)) {
 		          retval = 1;
 	          } else return -ENOTTY;
             break;
 
        case SETDATASIZE : // Execute SetDataSize function
-            if (SetDataSize(*inode, *filp, arg)) {
+            if (SetDataSize(arg)) {
 		          retval = 1;
 	          } else return -ENOTTY;
             break;
 
        case SETPARITY : // Execute SetParity function
-            if (SetParity(*inode, *filp, arg)) {
+            if (SetParity(arg)) {
 		          retval = 1;
 	          } else return -ENOTTY;
             break;
 
        case GETBUFFERSIZE : // Execute GetBufSize function
-		        spin_lock(&pdata_p->splock);  
-		        if(GetBufSize(&pdata_p->buf_rdwr,size_t arg)) {
-              retval = 1;
-            } else {
-              return -ENOTTY;  
-            }
+		    printk(KERN_WARNING "MyMod: case GETBUFFSERSIZE\n");
+		    retval = (int) cb_getBufferSize(&(pdata_p->buf_rdwr));
             break;
 
        case SETBUFFERSIZE : // Execute SetBufSize function
-		SetBufSize(size_t arg);
-            break;
+        //if (!capable(CAP_SYS_ADMIN)) return -EPERM;
+        printk(KERN_WARNING "MyMod: case SETBUFFSERSIZE\n");
+		if(cb_setBufferSize(pdata_p,(size_t)arg)) {
+            printk(KERN_WARNING "MyMod: IOCTL new buffer capacity %d\n", pdata_p->buf_rdwr.capacity);
+            retval = 1;
+        } else {
+            return -ENOTTY;
+        }
+        break;
        default : return -ENOTTY;
      
     }
     return retval;
 }
 
-static int SetBaudRate(struct inode *inode, struct file *filp, unsigned long arg) {
+static int SetBaudRate(unsigned long arg) {
     int retval = 0;
-    if (arg<50 && arg>115200) {
+    if (arg<50 || arg>115200) {
      	printk(KERN_WARNING "Mymod: The speed must be between 50 and 115200 Baud.\n");
 	return -ENOTTY;
     } else {	
-	// mettre instruction pour changer cette vitesse
+	    // mettre instruction pour changer cette vitesse
+        printk(KERN_WARNING "Mymod: Setting Baud Rate.\n");
 	retval = 1;
     }
-    return retavl;
+    return retval;
 }
 
-static int SetDataSize(struct inode *inode, struct file *filp, unsigned long arg) {
+static int SetDataSize(unsigned long arg) {
     int retval = 0;
     if (arg<5 && arg>8) {
      	printk(KERN_WARNING "Mymod: The size of the communication data must be betwween 5 and 8 bits.\n");
 	return -ENOTTY;
     } else {	
-	// mettre instruction pour taille des données
+	    // mettre instruction pour taille des données
+        printk(KERN_WARNING "Mymod: Setting Data Size.\n");
 	retval = 1;
     }
-    return retavl;
+    return retval;
 }
 
-static int SetParity(struct inode *inode, struct file *filp, unsigned long arg) {
+static int SetParity(unsigned long arg) {
     int retval = 0;
     if (arg>3) {
 	printk(KERN_WARNING "Mymod: The allowed parity types are : no parity (0), odd parity (1) and even parity (2).\n");
 	return -ENOTTY;
     } else {	
-	// mettre instruction pour changer la parité
+	    // mettre instruction pour changer la parité
+        printk(KERN_WARNING "Mymod: Setting Parity.\n");
 	retval = 1;
     }
-    return retavl;
+    return retval;
 
 }
 
-static int GetBufSize(struct inode *inode, struct file *filp, unsigned long arg) {
-    int retval = 0;
-    retval = cb_count(&pdata[n].buf_rdwr);
-    return retavl;
 
-}
-
-//pas compris
-static int SetBufSize(struct inode *inode, struct file *filp, unsigned long arg) {
-    int retval = 0;
-    retval = cb_count(&pdata[n].buf_rdwr);
-    return retavl;
-
-}
-
-static void __exit mod_exit(void)
-{
-  int n;
-
-  cdev_del(&My_cdev);
-
-  for (n = 0; n < PORTNUMBER; n++)
-  {
-    device_destroy(MyClass, (My_dev + n));
-  }
-  class_destroy(MyClass);
 static void __exit mod_exit(void) {
     int n;
 

@@ -1,4 +1,5 @@
 
+
 typedef struct circular_buffer
 {
     void *buffer;     // data buffer
@@ -10,6 +11,19 @@ typedef struct circular_buffer
     void *tail;       // pointer to tail
 } circular_buffer;
 
+extern struct pData
+{
+  int8_t owner; // takes the owners id
+  circular_buffer buf_rdwr;
+  uint8_t numPort;
+  bool fREAD;
+  bool fWRITE;
+  struct semaphore sem;
+  struct spinlock splock;
+  struct mutex mutex;
+  wait_queue_head_t RdQ, WrQ;
+} pData;
+
 void cb_init(circular_buffer *cb, size_t capacity, size_t sz);
 
 void cb_free(circular_buffer *cb);
@@ -17,5 +31,11 @@ void cb_free(circular_buffer *cb);
 void cb_push(circular_buffer *cb, const void *item);
 
 void cb_pop(circular_buffer *cb, void *item);
+
+size_t cb_count(circular_buffer *cb);
+
+size_t cb_getBufferSize(circular_buffer *cb);
+
+int cb_setBufferSize(struct pData *pdata_p, size_t newcapacity);
 
 size_t cb_count(circular_buffer *cb);
