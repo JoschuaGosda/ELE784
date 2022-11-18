@@ -26,11 +26,11 @@ struct file_operations MyModule_fops = {
     .unlocked_ioctl = MyModule_ioctl
 };
 
-//irq_handler_t isrSerialPort(int irq, void* dev_t){
+irqreturn_t isrSerialPort(int num_irq, void* dev_t){
 //read
 
 //write
-//}
+}
 
 struct pData pdata[PORTNUMBER];
 
@@ -78,6 +78,8 @@ static int __init mod_init(void) {
 	pdata[n].num_interupt = 20+n;
     }
 
+    SetDefaultConfig();
+
     cdev_add(&My_cdev, My_dev,
              PORTNUMBER);  // add pilote to the kernel - struct cdev, dev number
                            // (/dev/My_dev1), int count
@@ -124,6 +126,7 @@ static int MyModule_open(struct inode *inode, struct file *filp) {
                 return -EACCES;
             } else {
                 pdata_p->fREAD = true;
+                IER |= ERBFI;
             }
             break;
 
@@ -135,6 +138,7 @@ static int MyModule_open(struct inode *inode, struct file *filp) {
                 return -EACCES;
             } else {
                 pdata_p->fWRITE = true;
+                IER &= ~(ETBEI);
             }
             break;
 
@@ -146,6 +150,8 @@ static int MyModule_open(struct inode *inode, struct file *filp) {
             } else {
                 pdata_p->fWRITE = true;
                 pdata_p->fREAD = true;
+                IER &= ~(ETBEI);
+                IER |= ERBFI;
             }
             break;
 
@@ -321,7 +327,7 @@ static ssize_t MyModule_write(struct file *filp, const char *buff, size_t len,
             }
             up(&pdata_p->sem);
             wake_up_interruptible(&pdata->RdQ);
-            
+            IER |= ETBEI;
             printk(KERN_WARNING "MyMod: WRITE buff count : %lu",
                 cb_count(pdata_p->buf_wr));
             //mutex_unlock(&pdata_p->mutex);

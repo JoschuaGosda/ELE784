@@ -2,12 +2,15 @@
 #include "port_config.h"
 
 
-static int SetDefaulfConfig(void){
+static int SetDefaultConfig(void){
   SetBaudRate(115200);
   SetDataSize(8);
   SetParity(0);
-  //Stopbit
-  //fifo
+  SetStopBit(1);
+  
+  //fifo enable
+  FCR |= 0x01;
+  FCR &= ~(0xC0);
 	
 }
 
@@ -16,11 +19,15 @@ static int SetBaudRate(unsigned long arg) {
     if (arg<50 || arg>115200) {
      	printk(KERN_WARNING "Mymod: The speed must be between 50 and 115200 Baud.\n");
 	return -ENOTTY;
-    } else {	
-	    // mettre instruction pour changer cette vitesse
-        printk(KERN_WARNING "Mymod: Setting Baud Rate.\n");
+    } 
+
+    LCR |= DLAB;
+    uint16_t PORT_DIVISOR = ((FREQ_BASE)/(16*arg));
+    DLL = PORT_DIVISOR & 0xFF;
+    DLM = PORT_DIVISOR & 0xFF00;
+    LCR &= ~DLAB;
 	retval = 1;
-    }
+
     return retval;
 }
 

@@ -1,5 +1,5 @@
-#ifndef MYMODULE_H
-#define MYMODULE_H
+#ifndef MYMODULE
+#define MYMODULE 
 
 #include <linux/init.h>
 #include <linux/module.h>
@@ -30,8 +30,19 @@
 #include <asm/io.h>
 #include <linux/ioctl.h>
 #include "ioctl_config.h"
+
+#include <linux/interrupt.h>
 #include "port_config.c"
 
+#define FREQ_BASE 1843200
+#define LCR 0x03
+#define DLL 0x00
+#define DLM 0x01
+#define FCR 0x02
+#define DLAB 0x80
+#define IER 0x01
+#define ERBFI 0x01
+#define ETBEI 0x02
 
  struct pData
 {
@@ -51,13 +62,11 @@
   uint8_t num_interupt;
 } pData;
 
-
 static ssize_t MyModule_read(struct file *file, char *buff , size_t len, loff_t *off);
 static ssize_t MyModule_write(struct file *file, const char *buff , size_t len, loff_t *off);
 static int MyModule_open(struct inode *inode, struct file *filp);
 static int MyModule_release(struct inode *inode, struct file *filp);
 static long MyModule_ioctl(struct file *filp, unsigned int cmd, unsigned long arg);
-
 
 
 #endif
