@@ -50,29 +50,28 @@ void cb_pop(circular_buffer *cb, void *item) // pop front
   cb->count--;
 }
 
-int cb_setBufferSize(struct pData *pdata_p, size_t newcapacity) {
-
-  circular_buffer new_b;
+circular_buffer* cb_setBufferSize(circular_buffer *cb, size_t newcapacity) {
+  uint8_t tempVal;
+  circular_buffer *new_b;
   int i;
-  int count = pdata_p->buf_rdwr.count;
-  if (count > newcapacity) {
-    return 0;
-  }
+  int count = cb->count;
+  
+  new_b = (circular_buffer *) kmalloc(sizeof(circular_buffer), GFP_KERNEL);
 
-  printk(KERN_WARNING "MyMod: function setBufferSize: value of newcapacity %d \n", newcapacity);
-  cb_init(&new_b, newcapacity, BUFFER_ELEMENTSIZE);
-  printk(KERN_WARNING "MyMod: function setBufferSize: new_b capacity %d \n", new_b.capacity);
+  printk(KERN_WARNING "MyMod: function setBufferSize: value of newcapacity %ld \n", newcapacity);
+  cb_init(new_b, newcapacity, BUFFER_ELEMENTSIZE);
+  printk(KERN_WARNING "MyMod: function setBufferSize: new_b capacity %ld \n", new_b->capacity);
 
   for (i = 0; i < count; i++) {
     printk(KERN_WARNING "MyMod: function setBufferSize: for loop \n");
-    int a;
-    cb_pop(&pdata_p->buf_rdwr, &a);      
-    cb_push(&new_b, &a);
+    
+    cb_pop(cb, &tempVal);      
+    cb_push(new_b, &tempVal);
   }
-  cb_free(&pdata_p->buf_rdwr);
-  printk(KERN_WARNING "MyMod: function setBufferSize: size of new buffer is %d \n", new_b.capacity);
-  pdata_p->buf_rdwr = new_b;
-  return 1;
+  cb_free(cb);
+  printk(KERN_WARNING "MyMod: function setBufferSize: size of new buffer is %ld \n", new_b->capacity);
+  
+  return new_b;
 }
 
 size_t cb_getBufferSize(circular_buffer *cb) {

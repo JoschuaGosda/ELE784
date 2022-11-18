@@ -1,5 +1,5 @@
 #define PORTNUMBER 2
-#define BUFFER_CAPACITY 3
+#define BUFFER_CAPACITY 10
 #define BUFFER_ELEMENTSIZE 1 //element size is 1 byte
 
 #include "MyModule.h"
@@ -26,7 +26,11 @@ struct file_operations MyModule_fops = {
     .unlocked_ioctl = MyModule_ioctl
 };
 
+//irq_handler_t isrSerialPort(int irq, void* dev_t){
+//read
 
+//write
+//}
 
 struct pData pdata[PORTNUMBER];
 
@@ -47,24 +51,36 @@ static int __init mod_init(void) {
         device_create(MyClass, NULL, (My_dev + n), NULL, "MyModuleNode%d", n);
     }
 
+
     cdev_init(&My_cdev, &MyModule_fops);  // add pointer in struct cdev to
                                           // struct file operations
-    cdev_add(&My_cdev, My_dev,
-             PORTNUMBER);  // add pilote to the kernel - struct cdev, dev number
-                           // (/dev/My_dev1), int count
+
 
     for (n = 0; n < PORTNUMBER; n++) {
-        cb_init(&pdata[n].buf_rdwr, BUFFER_CAPACITY, BUFFER_ELEMENTSIZE);
+
+	pdata[n].buf_rd = (circular_buffer *) kmalloc(sizeof(circular_buffer), GFP_KERNEL);
+	pdata[n].buf_wr = (circular_buffer *) kmalloc(sizeof(circular_buffer), GFP_KERNEL);
+
+        cb_init(pdata[n].buf_rd, BUFFER_CAPACITY, BUFFER_ELEMENTSIZE);
+	cb_init(pdata[n].buf_wr, BUFFER_CAPACITY, BUFFER_ELEMENTSIZE);
+
         pdata[n].fREAD = false;
         pdata[n].fWRITE = false;
         pdata[n].owner = -1;
+
         sema_init(&pdata[n].sem, 1);
         spin_lock_init(&pdata[n].splock);
         mutex_init(&pdata[n].mutex);
         init_waitqueue_head(&pdata[n].RdQ);
         init_waitqueue_head(&pdata[n].WrQ);
+
+	pdata[n].base_addr = (0x1100+n*0x0008); //todo verif
+	pdata[n].num_interupt = 20+n;
     }
 
+    cdev_add(&My_cdev, My_dev,
+             PORTNUMBER);  // add pilote to the kernel - struct cdev, dev number
+                           // (/dev/My_dev1), int count
     printk(KERN_WARNING "MyMod : Kernel Module initilized with number  %u\n",
            MyModule_X);
 
@@ -171,7 +187,7 @@ static ssize_t MyModule_read(struct file *filp, char *buff, size_t len,
     if (down_interruptible(&pdata_p->sem)) {
         return -ERESTARTSYS;
     }
-    if (pdata_p->buf_rdwr.count == 0) {  // no data in the cbuffer
+    if (pdata_p->buf_rd->count == 0) {  // no data in the cbuffer
         up(&pdata_p->sem);
 
         if (filp->f_flags & O_NONBLOCK) {
@@ -181,7 +197,7 @@ static ssize_t MyModule_read(struct file *filp, char *buff, size_t len,
         } else {
             printk(KERN_WARNING "MyMod: READ : NO DATA BUT WILL WAIT\n");
             if (wait_event_interruptible(
-                pdata_p->RdQ, pdata_p->buf_rdwr.count > 0)) { 
+                pdata_p->RdQ, pdata_p->buf_rd->count > 0)) { 
                       // waiting for someting in the buffer
                 return -ERESTARTSYS;    
             }
@@ -196,9 +212,9 @@ static ssize_t MyModule_read(struct file *filp, char *buff, size_t len,
 
     // data in the buffer , on ajuste le compte , plus petit entre ask et
     // available
-    count = (len <= cb_count(&pdata_p->buf_rdwr))
+    count = (len <= cb_count(pdata_p->buf_rd))
                 ? len
-                : cb_count(&pdata_p->buf_rdwr);
+                : cb_count(pdata_p->buf_rd);
 
     // retire content of ring buffer to local buffer une a la fois
 
@@ -206,9 +222,9 @@ static ssize_t MyModule_read(struct file *filp, char *buff, size_t len,
 
 
     for (i = 0; i < count; i++) {
-        cb_pop(&pdata_p->buf_rdwr, &(BufR[i]));
+        cb_pop(pdata_p->buf_rd, &(BufR[i]));
     }
-    printk(KERN_WARNING "MyMod: Read after pop buff_count : %lu",cb_count(&pdata_p->buf_rdwr));
+    printk(KERN_WARNING "MyMod: Read after pop buff_count : %lu",cb_count(pdata_p->buf_rd));
     // mutex_unlock(&pdata_p->mutex);
     
     wake_up_interruptible(&pdata_p->WrQ);
@@ -242,6 +258,7 @@ static ssize_t MyModule_write(struct file *filp, const char *buff, size_t len,
     size_t count;
     unsigned long left;
     struct pData *pdata_p = filp->private_data;
+    size_t buffer_capacity;
 
     spin_lock(&pdata_p->splock);
     // protection d'access
@@ -257,9 +274,10 @@ static ssize_t MyModule_write(struct file *filp, const char *buff, size_t len,
         return -ERESTARTSYS;
     }
 
-    int buffer_capacity = cb_getBufferSize(&pdata_p->buf_rdwr);
 
-    if (pdata_p->buf_rdwr.count == buffer_capacity) {  // buffer is full(if buffsize = 10 then 0 to 9
+    buffer_capacity = cb_getBufferSize(pdata_p->buf_wr);
+
+    if (pdata_p->buf_wr->count == buffer_capacity) {  // buffer is full(if buffsize = 10 then 0 to 9
         up(&pdata_p->sem);
 
         if (filp->f_flags & O_NONBLOCK) {
@@ -269,7 +287,7 @@ static ssize_t MyModule_write(struct file *filp, const char *buff, size_t len,
             printk(KERN_WARNING "MyMod: WRITE : NO SPACE BUT WILL WAIT\n");
             if (wait_event_interruptible(
                 pdata_p->WrQ,
-                pdata_p->buf_rdwr.count < buffer_capacity)) {
+                pdata_p->buf_wr->count < buffer_capacity)) {
                     return -ERESTARTSYS;
             }
         }
@@ -281,9 +299,9 @@ static ssize_t MyModule_write(struct file *filp, const char *buff, size_t len,
     }
 
     // place is buffer, ajust count. wich one is minimal ASK or AVAILABLE ?
-    count = (len <= buffer_capacity - pdata_p->buf_rdwr.count)
+    count = (len <= buffer_capacity - pdata_p->buf_wr->count)
                 ? len
-                : (buffer_capacity - pdata_p->buf_rdwr.count);
+                : (buffer_capacity - pdata_p->buf_wr->count);
 
     printk(KERN_WARNING "MyMod: WRITE count : %lu\n",count);
 
@@ -299,13 +317,13 @@ static ssize_t MyModule_write(struct file *filp, const char *buff, size_t len,
             //  copy content of local buffer to ring buffer une a la fois
 
             for (i = 0; i < count; i++) {
-                cb_push(&pdata_p->buf_rdwr, &(BufW[i]));
+                cb_push(pdata_p->buf_wr, &(BufW[i]));
             }
             up(&pdata_p->sem);
             wake_up_interruptible(&pdata->RdQ);
             
             printk(KERN_WARNING "MyMod: WRITE buff count : %lu",
-                cb_count(&pdata_p->buf_rdwr));
+                cb_count(pdata_p->buf_wr));
             //mutex_unlock(&pdata_p->mutex);
         } else {
             // some data was not copy from user space to kernel space, is not written to global buffer at all -> return 0
@@ -375,6 +393,8 @@ static int MyModule_release(struct inode *inode, struct file *filp) {
 
 static long MyModule_ioctl(struct file *filp, unsigned int cmd, unsigned long arg) {
     int retval = 0;
+    circular_buffer *temp_buff_Rd, *temp_buff_Wr;
+   
     struct pData *pdata_p = filp->private_data;
     printk(KERN_WARNING "MyMod: IOCTL\n");
 
@@ -405,18 +425,31 @@ static long MyModule_ioctl(struct file *filp, unsigned int cmd, unsigned long ar
 
        case GETBUFFERSIZE : // Execute GetBufSize function
 		    printk(KERN_WARNING "MyMod: case GETBUFFSERSIZE\n");
-		    retval = (int) cb_getBufferSize(&(pdata_p->buf_rdwr));
+		    retval = (int) cb_getBufferSize(pdata_p->buf_rd);
             break;
 
        case SETBUFFERSIZE : // Execute SetBufSize function
         //if (!capable(CAP_SYS_ADMIN)) return -EPERM;
+	//check if possible 
+	if(pdata_p->buf_wr->count > (size_t)arg || pdata_p->buf_wr->count > (size_t)arg  ){
+		printk(KERN_WARNING "MyMod: buffer size request is too large\n");
+		return 0;
+	  }
         printk(KERN_WARNING "MyMod: case SETBUFFSERSIZE\n");
-		if(cb_setBufferSize(pdata_p,(size_t)arg)) {
-            printk(KERN_WARNING "MyMod: IOCTL new buffer capacity %d\n", pdata_p->buf_rdwr.capacity);
-            retval = 1;
-        } else {
-            return -ENOTTY;
-        }
+
+	temp_buff_Rd = cb_setBufferSize(pdata_p->buf_rd,(size_t)arg);
+	temp_buff_Wr = cb_setBufferSize(pdata_p->buf_wr,(size_t)arg);
+
+	
+
+	pdata_p->buf_rd = temp_buff_Rd;
+	pdata_p->buf_wr = temp_buff_Wr;
+
+           // printk(KERN_WARNING "MyMod: IOCTL new buffer capacity %ld\n", pdata_p->buf_rd->capacity);
+         //if(&pdata_p->buf_rd == NULL) {
+	 //  return -ENOTTY;
+	//}
+ 	retval = 1;
         break;
        default : return -ENOTTY;
      
@@ -424,45 +457,6 @@ static long MyModule_ioctl(struct file *filp, unsigned int cmd, unsigned long ar
     return retval;
 }
 
-static int SetBaudRate(unsigned long arg) {
-    int retval = 0;
-    if (arg<50 || arg>115200) {
-     	printk(KERN_WARNING "Mymod: The speed must be between 50 and 115200 Baud.\n");
-	return -ENOTTY;
-    } else {	
-	    // mettre instruction pour changer cette vitesse
-        printk(KERN_WARNING "Mymod: Setting Baud Rate.\n");
-	retval = 1;
-    }
-    return retval;
-}
-
-static int SetDataSize(unsigned long arg) {
-    int retval = 0;
-    if (arg<5 && arg>8) {
-     	printk(KERN_WARNING "Mymod: The size of the communication data must be betwween 5 and 8 bits.\n");
-	return -ENOTTY;
-    } else {	
-	    // mettre instruction pour taille des données
-        printk(KERN_WARNING "Mymod: Setting Data Size.\n");
-	retval = 1;
-    }
-    return retval;
-}
-
-static int SetParity(unsigned long arg) {
-    int retval = 0;
-    if (arg>3) {
-	printk(KERN_WARNING "Mymod: The allowed parity types are : no parity (0), odd parity (1) and even parity (2).\n");
-	return -ENOTTY;
-    } else {	
-	    // mettre instruction pour changer la parité
-        printk(KERN_WARNING "Mymod: Setting Parity.\n");
-	retval = 1;
-    }
-    return retval;
-
-}
 
 
 static void __exit mod_exit(void) {
@@ -477,7 +471,8 @@ static void __exit mod_exit(void) {
     class_destroy(MyClass);
 
      for (n = 0; n < PORTNUMBER; n++) {
-        cb_free(&pdata[n].buf_rdwr);
+        cb_free(pdata[n].buf_rd);
+        cb_free(pdata[n].buf_wr);
         /*
         pdata[n].fREAD = false;
         pdata[n].fWRITE = false;

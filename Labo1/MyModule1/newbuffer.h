@@ -1,4 +1,4 @@
-
+#include "MyModule.h"
 
 typedef struct circular_buffer
 {
@@ -10,7 +10,7 @@ typedef struct circular_buffer
     void *head;       // pointer to head
     void *tail;       // pointer to tail
 } circular_buffer;
-
+/*
 extern struct pData
 {
   int8_t owner; // takes the owners id
@@ -22,7 +22,7 @@ extern struct pData
   struct spinlock splock;
   struct mutex mutex;
   wait_queue_head_t RdQ, WrQ;
-} pData;
+} pData;*/
 
 void cb_init(circular_buffer *cb, size_t capacity, size_t sz);
 
@@ -36,6 +36,6 @@ size_t cb_count(circular_buffer *cb);
 
 size_t cb_getBufferSize(circular_buffer *cb);
 
-int cb_setBufferSize(struct pData *pdata_p, size_t newcapacity);
+circular_buffer* cb_setBufferSize(circular_buffer *cb, size_t newcapacity);
 
 size_t cb_count(circular_buffer *cb);
