@@ -1,5 +1,5 @@
-#ifndef MYMODULE
-#define MYMODULE 
+#ifndef MYMODULE_H
+#define MYMODULE_H 
 
 #include <linux/init.h>
 #include <linux/module.h>
@@ -14,11 +14,12 @@
 #include <linux/wait.h>
 #include <linux/err.h>
 #include <linux/sched.h> 
-#include "newbuffer.c"
+
 #include <linux/cdev.h>
 #include <linux/slab.h>
 #include <asm/uaccess.h>
 #include <linux/uaccess.h>
+#include <linux/ioport.h>
 
 
 
@@ -30,17 +31,18 @@
 #include <asm/io.h>
 #include <linux/ioctl.h>
 #include "ioctl_config.h"
+#include "newbuffer.c"
 
 #include <linux/interrupt.h>
 #include "port_config.c"
 
 #define FREQ_BASE 1843200
-#define LCR 0x03
-#define DLL 0x00
-#define DLM 0x01
-#define FCR 0x02
-#define DLAB 0x80
-#define IER 0x01
+#define LCR_REG 0x03
+#define DLL_REG 0x00
+#define DLM_REG 0x01
+#define FCR_REG 0x02
+#define DLAB_REG 0x80
+#define IER_REG 0x01
 #define ERBFI 0x01
 #define ETBEI 0x02
 

@@ -1,4 +1,6 @@
-#include "MyModule.h"
+#ifndef NEWBUFFER_H
+#define NEWBUFFER_H 
+//#include "MyModule.h"
 
 typedef struct circular_buffer
 {
@@ -39,3 +41,5 @@ size_t cb_getBufferSize(circular_buffer *cb);
 circular_buffer* cb_setBufferSize(circular_buffer *cb, size_t newcapacity);
 
 size_t cb_count(circular_buffer *cb);
+
+#endif

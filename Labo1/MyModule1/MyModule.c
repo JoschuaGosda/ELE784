@@ -26,11 +26,13 @@ struct file_operations MyModule_fops = {
     .unlocked_ioctl = MyModule_ioctl
 };
 
-irqreturn_t isrSerialPort(int num_irq, void* dev_t){
+uint8_t IER;
+
+//irqreturn_t isrSerialPort(int num_irq, void* dev_t){
 //read
 
 //write
-}
+//}
 
 struct pData pdata[PORTNUMBER];
 
@@ -62,7 +64,7 @@ static int __init mod_init(void) {
 	pdata[n].buf_wr = (circular_buffer *) kmalloc(sizeof(circular_buffer), GFP_KERNEL);
 
         cb_init(pdata[n].buf_rd, BUFFER_CAPACITY, BUFFER_ELEMENTSIZE);
-	cb_init(pdata[n].buf_wr, BUFFER_CAPACITY, BUFFER_ELEMENTSIZE);
+	    cb_init(pdata[n].buf_wr, BUFFER_CAPACITY, BUFFER_ELEMENTSIZE);
 
         pdata[n].fREAD = false;
         pdata[n].fWRITE = false;
@@ -74,11 +76,21 @@ static int __init mod_init(void) {
         init_waitqueue_head(&pdata[n].RdQ);
         init_waitqueue_head(&pdata[n].WrQ);
 
-	pdata[n].base_addr = (0x1100+n*0x0008); //todo verif
-	pdata[n].num_interupt = 20+n;
+	    pdata[n].base_addr = (0x1100 | n*0x0008); //todo verif
+	    pdata[n].num_interupt = 20+n;
+        SetDefaultConfig(pdata[n].base_addr);
+
     }
 
-    SetDefaultConfig();
+   
+    if (request_region(0x1100, 8, "MonPortSerie_0") == NULL) {
+        printk(KERN_WARNING "MyMod : request_region() unsuccesfull \n");
+        return - EPERM;
+    }
+    if (request_region(0x1108, 8, "MonPortSerie_0") == NULL) {
+        printk(KERN_WARNING "MyMod : request_region() unsuccesfull \n");
+        return - EPERM;
+    }
 
     cdev_add(&My_cdev, My_dev,
              PORTNUMBER);  // add pilote to the kernel - struct cdev, dev number
@@ -127,6 +139,7 @@ static int MyModule_open(struct inode *inode, struct file *filp) {
             } else {
                 pdata_p->fREAD = true;
                 IER |= ERBFI;
+                outb(IER, pdata_p->base_addr | IER_REG);
             }
             break;
 
@@ -139,6 +152,7 @@ static int MyModule_open(struct inode *inode, struct file *filp) {
             } else {
                 pdata_p->fWRITE = true;
                 IER &= ~(ETBEI);
+                outb(IER, pdata_p->base_addr | IER_REG);
             }
             break;
 
@@ -152,6 +166,7 @@ static int MyModule_open(struct inode *inode, struct file *filp) {
                 pdata_p->fREAD = true;
                 IER &= ~(ETBEI);
                 IER |= ERBFI;
+                outb(IER, pdata_p->base_addr | IER_REG);
             }
             break;
 
@@ -412,19 +427,19 @@ static long MyModule_ioctl(struct file *filp, unsigned int cmd, unsigned long ar
 
     switch(cmd) {
        case SETBAUDRATE : // Execute SetBaudRate function
-            if (SetBaudRate(arg)) {
+            if (SetBaudRate(arg,pdata_p->base_addr)) {
 		          retval = 1;
 	          } else return -ENOTTY;
             break;
 
        case SETDATASIZE : // Execute SetDataSize function
-            if (SetDataSize(arg)) {
+            if (SetDataSize(arg,pdata_p->base_addr)) {
 		          retval = 1;
 	          } else return -ENOTTY;
             break;
 
        case SETPARITY : // Execute SetParity function
-            if (SetParity(arg)) {
+            if (SetParity(arg,pdata_p->base_addr)) {
 		          retval = 1;
 	          } else return -ENOTTY;
             break;
@@ -490,6 +505,9 @@ static void __exit mod_exit(void) {
         destroy_waitqueue_head(&pdata[n].WrQ);
         */
     }
+
+    release_region(0x1100, 8);
+    release_region(0x1108, 8);
 
     printk(KERN_WARNING "MyMod :------CLOSING---- !\n");
 }
