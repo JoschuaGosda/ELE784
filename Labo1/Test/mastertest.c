@@ -92,19 +92,21 @@ int main() {
     		if (fd < 0) {
         	printf("Erreur d'ouverture = %d\n", fd);
         	return -1;}
+			printf("How many data to read\n");
+			scanf("%d",&tp1);
+			printf("Okay %d data to read\n",tp1);
+			char tp [tp1];
+			ret = read(fd, &tp, tp1);
+			if (ret < 1) {
+			printf("Not all data as been read \n");
+		}
+		printf("%u data elements read \n", ret);
+
     	} else {
-	printf("Erreur de choix \n");
+		printf("Erreur de choix \n");
 		return 0;		
 		}
-	     printf("How many data to read\n");
-     scanf("%d",&tp1);
-     printf("Okay %d data to read\n",tp1);
-     char tp [tp1];
-    ret = read(fd, &tp, tp1);
-    if (ret < 1) {
-        printf("Not all data as been read \n");
-    }
-    printf("%u data elements read \n", ret);
+
 
 
 
