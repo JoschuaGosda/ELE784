@@ -1,0 +1,36 @@
+port serie 
+- (rx, tx - deux ligne),
+- a 8 registre, voir le document pour leur fonction
+- document pc 16550D (pas de besoin normalement)
+
+registre RBR: registre de receiption
+registre THR: registre avec les donnees, envoyer
+registre LSR: registre de status, important
+
+interruption quand les donnes sont transmis ou recu -> il faut verifier c est quelle evenement (fais-le avec registre status - DR)
+deux tampon circulaire pour la reception / transmission 
+
+seulment si le tampon est vide lusager va bloquer, dans le deux cas: linteruption va le reveiller
+
+chaque interruption va avoir sa propre numero/address dinterruption
+
+struct de donnes: address de base, irq, rxbuf, txbuf, waitqueue_rx, waitqueue_tx (bruno +atomic serial_port_available)
+
+code de quantite de linteruption - in combination with base address
+
+setserial -g /dev/ttyS0123456789 
+voir quelle sont du type 16650V2, implement les address directement dans notre code
+
+
+lsmod / grep 8250
+sudo modprobe -r 8250_pci 8250_base (r pour remove, sans r - install)
+
+pour tester donne gtcater un port, lautre port notre pilote
+
+
+
+pour connecter en distance linux: remina, protocoll rdp, address de 
+
+
+
+

@@ -28,11 +28,51 @@ struct file_operations MyModule_fops = {
 
 uint8_t IER;
 
-//irqreturn_t isrSerialPort(int num_irq, void* dev_t){
-//read
+irqreturn_t isrSerialPort(int num_irq, void *pdata){
 
-//write
-//}
+        
+    //check wich port : todo ?? does the pdata is already the right pdata
+   // uint8_t portID =  pdata->numPort
+
+    //get inb register
+    //LSR
+    uint8_t tpLSR;
+    uint8_t tpdata;
+    struct pData *pdata_p =  pdata;
+
+
+    tpLSR = inb(pdata_p->base_addr | LSR_REG);
+     
+    printk("MyMod : interrupt check");
+
+    
+    //RX  RBR
+    if(tpLSR & LSR_DR) {
+         printk("MyMod : int. RX ");
+        tpdata = inb(pdata_p->base_addr | DLAB_REG );
+        spin_lock_irq(&pdata_p->splock);
+        cb_push(pdata_p->buf_rd,&tpdata);
+        spin_unlock_irq(&pdata_p->splock);
+        wake_up_interruptible(&pdata_p->WrQ);
+    } 
+
+
+    // TX TEMT
+    if(tpLSR & LSR_TEMT) {
+        printk("MyMod : int. TX ");
+        spin_lock_irq(&pdata_p->splock);
+        cb_pop(pdata_p->buf_rd,&tpdata);
+        spin_unlock_irq(&pdata_p->splock);
+        outb(tpdata,pdata_p->base_addr | DLAB_REG);
+        wake_up_interruptible(&pdata_p->WrQ);
+
+        //disable TX
+        IER &= ~ETBEI;
+        outb(IER, pdata_p->base_addr | IER_REG);
+    }
+
+    return IRQ_HANDLED;
+}
 
 struct pData pdata[PORTNUMBER];
 
@@ -42,7 +82,7 @@ struct cdev My_cdev;
 
 static int __init mod_init(void) {
     int n;
-
+    unsigned long number = 8; 
     // int alloc_chrdev_region(dev_t* dev, unsigned int firstminor, unsigned int
     // count, char *name)
     alloc_chrdev_region(&My_dev, 0, PORTNUMBER, "MonPremierPilote");
@@ -76,20 +116,34 @@ static int __init mod_init(void) {
         init_waitqueue_head(&pdata[n].RdQ);
         init_waitqueue_head(&pdata[n].WrQ);
 
-	    pdata[n].base_addr = (0x1100 | n*0x0008); //todo verif
-	    pdata[n].num_interupt = 20+n;
-        SetDefaultConfig(pdata[n].base_addr);
 
     }
 
+	    pdata[0].base_addr = 0xc030; //todo verif
+	    pdata[0].num_interupt = 20;
+        SetDefaultConfig(pdata[0].base_addr);
+
+	    pdata[1].base_addr = 0xc020; //todo verif
+	    pdata[1].num_interupt = 21;
+        SetDefaultConfig(pdata[1].base_addr);
    
-    if (request_region(0x1100, 8, "MonPortSerie_0") == NULL) {
-        printk(KERN_WARNING "MyMod : request_region() unsuccesfull \n");
+    if (request_region(pdata[0].base_addr, number, "hellobonjour") == NULL) {
+        printk(KERN_WARNING "MyMod : request_region() unsuccesfull--------0 \n");
         return - EPERM;
     }
-    if (request_region(0x1108, 8, "MonPortSerie_0") == NULL) {
-        printk(KERN_WARNING "MyMod : request_region() unsuccesfull \n");
+    if (request_region(pdata[1].base_addr, number, "hellobonjour") == NULL) {
+        printk(KERN_WARNING "MyMod : request_region() unsuccesfull---------1 \n");
         return - EPERM;
+    }
+
+    if(request_irq(pdata[0].num_interupt,&isrSerialPort,IRQF_SHARED,"MonPortSerie_0_IRQ",&(pdata[0]))) {
+        printk(KERN_WARNING "MyMod : Request_irq unsuccesfull  \n");
+        release_region(pdata[0].base_addr, number);
+    }
+
+    if(request_irq(pdata[1].num_interupt,&isrSerialPort,IRQF_SHARED,"MonPortSerie_1_IRQ",&(pdata[1]))) {
+        printk(KERN_WARNING "MyMod : Request_irq unsuccesfull  \n");
+        release_region(pdata[1].base_addr, number);
     }
 
     cdev_add(&My_cdev, My_dev,
@@ -343,6 +397,8 @@ static ssize_t MyModule_write(struct file *filp, const char *buff, size_t len,
             up(&pdata_p->sem);
             wake_up_interruptible(&pdata->RdQ);
             IER |= ETBEI;
+            outb(IER, pdata_p->base_addr | IER_REG);
+
             printk(KERN_WARNING "MyMod: WRITE buff count : %lu",
                 cb_count(pdata_p->buf_wr));
             //mutex_unlock(&pdata_p->mutex);
@@ -506,8 +562,11 @@ static void __exit mod_exit(void) {
         */
     }
 
-    release_region(0x1100, 8);
-    release_region(0x1108, 8);
+    release_region(pdata[0].base_addr, 8);
+    release_region(pdata[1].base_addr, 8);
+
+    free_irq(pdata[0].num_interupt,&(pdata[0]));
+    free_irq(pdata[1].num_interupt,&(pdata[1]));
 
     printk(KERN_WARNING "MyMod :------CLOSING---- !\n");
 }
