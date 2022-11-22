@@ -1,7 +1,8 @@
 //#include "MyModule.h"
 #include "port_config.h"
 //#include "MyModule.h"
-uint8_t FCR, LCR, DLAB, DLL, DLM;
+uint8_t FCR, DLAB, DLL, DLM;
+extern uint8_t LCR;
 
 int SetDefaultConfig(uint16_t base_addr){
   DLAB = 0x80;

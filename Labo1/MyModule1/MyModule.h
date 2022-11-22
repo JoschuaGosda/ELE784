@@ -45,6 +45,10 @@
 #define IER_REG 0x01
 #define ERBFI 0x01
 #define ETBEI 0x02
+#define RBR_REG 0x00
+#define THR_REG 0x00
+#define LSR_THRE 0x20
+#define LSR_TEMT 0x40
 
  struct pData
 {

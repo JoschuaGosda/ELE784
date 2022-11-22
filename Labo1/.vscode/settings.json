@@ -1,0 +1,8 @@
+{
+    "files.associations": {
+        "ioctl.h": "c",
+        "mymodule.h": "c",
+        "ioctl_config.h": "c",
+        "port_config.h": "c"
+    }
+}

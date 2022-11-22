@@ -27,6 +27,7 @@ struct file_operations MyModule_fops = {
 };
 
 uint8_t IER;
+uint8_t LCR;
 
 irqreturn_t isrSerialPort(int num_irq, void *pdata){
 
@@ -41,34 +42,46 @@ irqreturn_t isrSerialPort(int num_irq, void *pdata){
     struct pData *pdata_p =  pdata;
 
 
-    tpLSR = inb(pdata_p->base_addr | LSR_REG);
+    tpLSR = inb(pdata_p->base_addr | LSR_REG); // line status register
      
     printk("MyMod : interrupt check");
 
     
-    //RX  RBR
+    //RX  RBR - read
     if(tpLSR & LSR_DR) {
-         printk("MyMod : int. RX ");
-        tpdata = inb(pdata_p->base_addr | DLAB_REG );
+        printk("MyMod : int. RX ");
+        LCR &= ~DLAB_REG;
+        outb(LCR, pdata_p->base_addr | LCR_REG);     
+        tpdata = inb(pdata_p->base_addr | RBR_REG); 
         spin_lock_irq(&pdata_p->splock);
         cb_push(pdata_p->buf_rd,&tpdata);
         spin_unlock_irq(&pdata_p->splock);
-        wake_up_interruptible(&pdata_p->WrQ);
+        //wake_up_interruptible(&pdata_p->WrQ);
+        printk("MyMod : buffer count is %lu", pdata_p->buf_wr->count);
     } 
 
 
-    // TX TEMT
-    if(tpLSR & LSR_TEMT) {
+    // TX THRE data to transmit
+    if(tpLSR & LSR_THRE) {
         printk("MyMod : int. TX ");
         spin_lock_irq(&pdata_p->splock);
-        cb_pop(pdata_p->buf_rd,&tpdata);
+        cb_pop(pdata_p->buf_wr,&tpdata);
         spin_unlock_irq(&pdata_p->splock);
-        outb(tpdata,pdata_p->base_addr | DLAB_REG);
-        wake_up_interruptible(&pdata_p->WrQ);
+        LCR &= ~DLAB_REG;
+        outb(LCR, pdata_p->base_addr | LCR_REG); 
+        outb(tpdata,pdata_p->base_addr | THR_REG);
+        
+        printk("MyMod : buffer count is %lu", pdata_p->buf_wr->count);
+        
+    }
 
+    // TX TEMT  tpLSR & LSR_TEMT &&
+    if( pdata_p->buf_wr->count == 0) {
         //disable TX
         IER &= ~ETBEI;
         outb(IER, pdata_p->base_addr | IER_REG);
+        printk("MyMod : buffer_wr emtpy");
+        //wake_up_interruptible(&pdata_p->RdQ);
     }
 
     return IRQ_HANDLED;
@@ -302,7 +315,7 @@ static ssize_t MyModule_read(struct file *filp, char *buff, size_t len,
     printk(KERN_WARNING "MyMod: Read after pop buff_count : %lu",cb_count(pdata_p->buf_rd));
     // mutex_unlock(&pdata_p->mutex);
     
-    wake_up_interruptible(&pdata_p->WrQ);
+   // wake_up_interruptible(&pdata_p->WrQ);
     up(&pdata_p->sem);
     // printk(KERN_WARNING "MyMod: copied from ring buffer to local buffer \n");
     //printk(KERN_WARNING "MyMod: popped data elements from global buffer");
@@ -395,7 +408,7 @@ static ssize_t MyModule_write(struct file *filp, const char *buff, size_t len,
                 cb_push(pdata_p->buf_wr, &(BufW[i]));
             }
             up(&pdata_p->sem);
-            wake_up_interruptible(&pdata->RdQ);
+           // wake_up_interruptible(&pdata->RdQ);
             IER |= ETBEI;
             outb(IER, pdata_p->base_addr | IER_REG);
 

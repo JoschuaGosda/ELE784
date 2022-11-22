@@ -11,11 +11,14 @@
 #define LSR_REG 0x05
 #define DLAB_REG 0x80
 #define IER_REG 0x01
+#define RBR_REG 0x00
+#define THR_REG 0x00
 
 #define ERBFI 0x01
 #define ETBEI 0x02
 #define LSR_DR 0x00
-#define LSR_TEMT 0x06
+#define LSR_TEMT 0x40
+#define LSR_THRE 0x20
 
 int SetDefaultConfig(uint16_t base_addr);
 int SetBaudRate(unsigned long arg,uint16_t base_addr);
