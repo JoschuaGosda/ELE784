@@ -18,11 +18,11 @@ struct de donnes: address de base, irq, rxbuf, txbuf, waitqueue_rx, waitqueue_tx
 
 code de quantite de linteruption - in combination with base address
 
-setserial -g /dev/ttyS0123456789 
+setserial -g /dev/ttyS[0123456789] 
 voir quelle sont du type 16650V2, implement les address directement dans notre code
 
 
-lsmod / grep 8250
+lsmod | grep 8250
 sudo modprobe -r 8250_pci 8250_base (r pour remove, sans r - install)
 
 pour tester donne gtcater un port, lautre port notre pilote

@@ -193,7 +193,7 @@ static int MyModule_open(struct inode *inode, struct file *filp) {
     {
         printk(KERN_WARNING "MyMod: ERR current user is :%u and new is : %u",
                pdata_p->owner, current_uid().val);
-        spin_unlock(&pdata_p->splock);
+        spin_unlock_irq(&pdata_p->splock);
         return -EACCES;
     } else {
         printk(KERN_WARNING "MyMod: current user is the owner");
@@ -204,7 +204,7 @@ static int MyModule_open(struct inode *inode, struct file *filp) {
             printk(KERN_WARNING "MyMod: O_RDONLY access");
             // statements
             if (pdata_p->fREAD) {
-                spin_unlock(&pdata_p->splock);
+                spin_unlock_irq(&pdata_p->splock);
                 return -EACCES;
             } else {
                 pdata_p->fREAD = true;
@@ -216,7 +216,7 @@ static int MyModule_open(struct inode *inode, struct file *filp) {
             printk(KERN_WARNING "MyMod: O_WRONLY access");
             // statements
             if (pdata_p->fWRITE) {
-                spin_unlock(&pdata_p->splock);
+                spin_unlock_irq(&pdata_p->splock);
                 return -EACCES;
             } else {
                 pdata_p->fWRITE = true;
@@ -228,7 +228,7 @@ static int MyModule_open(struct inode *inode, struct file *filp) {
         case O_RDWR:
             printk(KERN_WARNING "MyMod: O_RDWR access");
             if (pdata_p->fWRITE || pdata_p->fREAD) {
-                spin_unlock(&pdata_p->splock);
+                spin_unlock_irq(&pdata_p->splock);
                 return -EACCES;
             } else {
                 pdata_p->fWRITE = true;
@@ -245,7 +245,7 @@ static int MyModule_open(struct inode *inode, struct file *filp) {
                    "implemented");
             // default statements
     }
-    spin_unlock(&pdata_p->splock);
+    spin_unlock_irq(&pdata_p->splock);
 
     // TODO: Port Série doit être placé en mode Réception
     printk(KERN_WARNING "MyMod: OPEN end\n");
@@ -267,10 +267,10 @@ static ssize_t MyModule_read(struct file *filp, char *buff, size_t len,
     // TODO: protection d'access
     if (!((filp->f_flags & O_ACCMODE) == O_RDONLY ||
           (filp->f_flags & O_ACCMODE) == O_RDWR)) {
-        spin_unlock(&pdata_p->splock);
+        spin_unlock_irq(&pdata_p->splock);
         return -EACCES;
     }
-    spin_unlock(&pdata_p->splock);
+    spin_unlock_irq(&pdata_p->splock);
    
    
     // mutex_lock(&pdata_p->mutex);// todo ??should be semaphore
@@ -354,10 +354,10 @@ static ssize_t MyModule_write(struct file *filp, const char *buff, size_t len,
     // protection d'access
     if (!((filp->f_flags & O_ACCMODE) == O_WRONLY ||
           (filp->f_flags & O_ACCMODE) == O_RDWR)) {
-        spin_unlock(&pdata_p->splock);
+        spin_unlock_irq(&pdata_p->splock);
         return -EACCES;
     }
-    spin_unlock(&pdata_p->splock);
+    spin_unlock_irq(&pdata_p->splock);
 
     printk(KERN_WARNING "MyMod: WRITE\n");
     if (down_interruptible(&pdata_p->sem)) { // returns 0 if sucess
@@ -468,7 +468,7 @@ static int MyModule_release(struct inode *inode, struct file *filp) {
         pdata_p->owner = -1;
         //printk(KERN_WARNING "MyMod: owner is set to %d", pdata_p->owner);
     }
-    spin_unlock(&pdata_p->splock);
+    spin_unlock_irq(&pdata_p->splock);
 
     // desattach the private data
     filp->private_data = NULL;
