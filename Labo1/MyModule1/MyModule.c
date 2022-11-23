@@ -42,36 +42,36 @@ irqreturn_t isrSerialPort(int num_irq, void *pdata){
     struct pData *pdata_p =  pdata;
 
 
-    tpLSR = inb(pdata_p->base_addr | LSR_REG); // line status register
+    tpLSR = inb(pdata_p->base_addr + LSR_REG); // line status register
      
-    printk("MyMod : interrupt check");
+    printk(KERN_ALERT"MyMod : interrupt check");
 
     
     //RX  RBR - read
     if(tpLSR & LSR_DR) {
-        printk("MyMod : int. RX ");
+        printk(KERN_ALERT"MyMod : int. RX ");
         LCR &= ~DLAB_REG;
-        outb(LCR, pdata_p->base_addr | LCR_REG);     
-        tpdata = inb(pdata_p->base_addr | RBR_REG); 
-        spin_lock_irq(&pdata_p->splock);
+        outb(LCR, pdata_p->base_addr + LCR_REG);     
+        tpdata = inb(pdata_p->base_addr + RBR_REG); 
+        
         cb_push(pdata_p->buf_rd,&tpdata);
-        spin_unlock_irq(&pdata_p->splock);
-        //wake_up_interruptible(&pdata_p->WrQ);
-        printk("MyMod : buffer count is %lu", pdata_p->buf_wr->count);
+        
+        wake_up_interruptible(&pdata_p->WrQ);
+        printk(KERN_ALERT"MyMod : buffer count is %lu", pdata_p->buf_wr->count);
     } 
 
 
     // TX THRE data to transmit
     if(tpLSR & LSR_THRE) {
-        printk("MyMod : int. TX ");
-        spin_lock_irq(&pdata_p->splock);
+        printk(KERN_ALERT"MyMod : int. TX ");
+       
         cb_pop(pdata_p->buf_wr,&tpdata);
-        spin_unlock_irq(&pdata_p->splock);
-        LCR &= ~DLAB_REG;
-        outb(LCR, pdata_p->base_addr | LCR_REG); 
-        outb(tpdata,pdata_p->base_addr | THR_REG);
         
-        printk("MyMod : buffer count is %lu", pdata_p->buf_wr->count);
+        LCR &= ~DLAB_REG;
+        outb(LCR, pdata_p->base_addr + LCR_REG); 
+        outb(tpdata,pdata_p->base_addr + THR_REG);
+        
+        printk(KERN_ALERT"MyMod : buffer count is %lu", pdata_p->buf_wr->count);
         
     }
 
@@ -79,9 +79,9 @@ irqreturn_t isrSerialPort(int num_irq, void *pdata){
     if( pdata_p->buf_wr->count == 0) {
         //disable TX
         IER &= ~ETBEI;
-        outb(IER, pdata_p->base_addr | IER_REG);
-        printk("MyMod : buffer_wr emtpy");
-        //wake_up_interruptible(&pdata_p->RdQ);
+        outb(IER, pdata_p->base_addr + IER_REG);
+        printk(KERN_ALERT"MyMod : buffer_wr emtpy");
+        wake_up_interruptible(&pdata_p->RdQ);
     }
 
     return IRQ_HANDLED;
@@ -165,6 +165,9 @@ static int __init mod_init(void) {
     printk(KERN_WARNING "MyMod : Kernel Module initilized with number  %u\n",
            MyModule_X);
 
+    IER &= ~(ETBEI);
+    outb(IER, pdata[0].base_addr + IER_REG);
+    outb(IER, pdata[1].base_addr + IER_REG);
     return 0;
 }
 
@@ -180,7 +183,7 @@ static int MyModule_open(struct inode *inode, struct file *filp) {
     pdata_p = &pdata[numPort];
     filp->private_data = pdata_p;
 
-    spin_lock(&pdata_p->splock);
+    spin_lock_irq(&pdata_p->splock);
     if (pdata_p->owner < 0) {
         pdata_p->owner = current_uid().val;
         printk(KERN_WARNING "MyMod: New owner is set to %u", pdata_p->owner);
@@ -205,8 +208,7 @@ static int MyModule_open(struct inode *inode, struct file *filp) {
                 return -EACCES;
             } else {
                 pdata_p->fREAD = true;
-                IER |= ERBFI;
-                outb(IER, pdata_p->base_addr | IER_REG);
+                
             }
             break;
 
@@ -219,7 +221,7 @@ static int MyModule_open(struct inode *inode, struct file *filp) {
             } else {
                 pdata_p->fWRITE = true;
                 IER &= ~(ETBEI);
-                outb(IER, pdata_p->base_addr | IER_REG);
+                outb(IER, pdata_p->base_addr + IER_REG);
             }
             break;
 
@@ -233,7 +235,7 @@ static int MyModule_open(struct inode *inode, struct file *filp) {
                 pdata_p->fREAD = true;
                 IER &= ~(ETBEI);
                 IER |= ERBFI;
-                outb(IER, pdata_p->base_addr | IER_REG);
+                outb(IER, pdata_p->base_addr + IER_REG);
             }
             break;
 
@@ -261,7 +263,7 @@ static ssize_t MyModule_read(struct file *filp, char *buff, size_t len,
 
     printk(KERN_WARNING "MyMod: READ ask:%lu\n",len);
 
-    spin_lock(&pdata_p->splock);
+    spin_lock_irq(&pdata_p->splock);
     // TODO: protection d'access
     if (!((filp->f_flags & O_ACCMODE) == O_RDONLY ||
           (filp->f_flags & O_ACCMODE) == O_RDWR)) {
@@ -348,7 +350,7 @@ static ssize_t MyModule_write(struct file *filp, const char *buff, size_t len,
     struct pData *pdata_p = filp->private_data;
     size_t buffer_capacity;
 
-    spin_lock(&pdata_p->splock);
+    spin_lock_irq(&pdata_p->splock);
     // protection d'access
     if (!((filp->f_flags & O_ACCMODE) == O_WRONLY ||
           (filp->f_flags & O_ACCMODE) == O_RDWR)) {
@@ -410,7 +412,7 @@ static ssize_t MyModule_write(struct file *filp, const char *buff, size_t len,
             up(&pdata_p->sem);
            // wake_up_interruptible(&pdata->RdQ);
             IER |= ETBEI;
-            outb(IER, pdata_p->base_addr | IER_REG);
+            outb(IER, pdata_p->base_addr + IER_REG);
 
             printk(KERN_WARNING "MyMod: WRITE buff count : %lu",
                 cb_count(pdata_p->buf_wr));
@@ -432,7 +434,7 @@ static int MyModule_release(struct inode *inode, struct file *filp) {
 
     //printk(KERN_WARNING "MyMod: RELEASE");
 
-    spin_lock(&pdata_p->splock);
+    spin_lock_irq(&pdata_p->splock);
     switch (filp->f_flags & O_ACCMODE) {
         case O_RDONLY:
             //printk(KERN_WARNING "MyMod: O_RDONLY acces reset");

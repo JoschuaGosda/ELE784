@@ -14,7 +14,7 @@ int SetDefaultConfig(uint16_t base_addr){
   //fifo enable
   FCR |= 0x01;
   FCR &= ~(0xC0);
-  outb(FCR, base_addr | FCR_REG );
+  outb(FCR, base_addr + FCR_REG );
  return 1;
 }
 
@@ -27,14 +27,14 @@ int SetBaudRate(unsigned long arg,uint16_t base_addr) {
     } 
     
     LCR |= DLAB;
-    outb(LCR, base_addr | LCR_REG);
+    outb(LCR, base_addr + LCR_REG);
     PORT_DIVISOR = ((FREQ_BASE)/(16*arg));
     DLL = PORT_DIVISOR & 0xFF;
-    outb(DLL, base_addr | DLL_REG);
+    outb(DLL, base_addr + DLL_REG);
     DLM = (uint8_t)((PORT_DIVISOR & 0xFF00)>>8);
-    outb(DLM, base_addr | DLM_REG);
+    outb(DLM, base_addr + DLM_REG);
     LCR &= ~DLAB;
-    outb(LCR, base_addr | LCR_REG);
+    outb(LCR, base_addr + LCR_REG);
 
     retval = 1;
 
@@ -67,7 +67,7 @@ int SetDataSize(unsigned long arg,uint16_t base_addr) {
 	    // mettre instruction pour taille des données
 	    LCR |= 0;
         printk(KERN_WARNING "MyMod: Setting Data Size.\n");
-	outb(LCR, base_addr | LCR_REG);
+	outb(LCR, base_addr + LCR_REG);
     retval = 1;
     
     return retval;
@@ -97,7 +97,7 @@ int SetParity(unsigned long arg,uint16_t base_addr) {
 	retval = 1;
     }
      printk(KERN_WARNING "MyMod: Setting Parity.\n");
-    outb(LCR, base_addr | LCR_REG);
+    outb(LCR, base_addr + LCR_REG);
     return retval;
 }
 
@@ -116,7 +116,7 @@ int SetStopBit(unsigned long arg,uint16_t base_addr) {
 
 	    // mettre instruction pour changer cette vitesse
         printk(KERN_WARNING "MyMod: Setting Baud Rate.\n");
-	outb(LCR,  base_addr | LCR_REG);
+	outb(LCR,  base_addr + LCR_REG);
     retval = 1;
     
     return retval;

@@ -16,7 +16,7 @@
 
 #define ERBFI 0x01
 #define ETBEI 0x02
-#define LSR_DR 0x00
+#define LSR_DR 0x01
 #define LSR_TEMT 0x40
 #define LSR_THRE 0x20
 
