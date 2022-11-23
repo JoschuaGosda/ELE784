@@ -66,20 +66,7 @@ irqreturn_t isrSerialPort(int num_irq, void *pdata){
         return IRQ_HANDLED;
     } 
 
-    // TX TEMT  tpLSR & LSR_TEMT &&
-    if( pdata_p->buf_wr->count <= 0 || tpLSR & LSR_TEMT) {
-        
-        //disable TX
-        printk(KERN_ALERT"MyMod : int. TX TEMT");
-        
-        IER &= ~ETBEI;
-        outb(IER, pdata_p->base_addr + IER_REG);
 
-        printk(KERN_ALERT"MyMod : buffer_wr emtpy");
-        wake_up_interruptible(&pdata_p->RdQ);
-
-        return IRQ_HANDLED;
-    }
 
     // TX THRE data to transmit
     if(tpLSR & LSR_THRE) {
@@ -93,9 +80,22 @@ irqreturn_t isrSerialPort(int num_irq, void *pdata){
         
         printk(KERN_ALERT"MyMod : buffer count is %lu", pdata_p->buf_wr->count);
         
+	    //No more data to Transmit
+    if( pdata_p->buf_wr->count <= 0 ) {
+        
+        //disable TX
+        printk(KERN_ALERT"MyMod : no more data");
+        
         IER &= ~ETBEI;
         outb(IER, pdata_p->base_addr + IER_REG);
+
+        printk(KERN_ALERT"MyMod : buffer_wr emtpy");
+        wake_up_interruptible(&pdata_p->RdQ);
+
+
         return IRQ_HANDLED;
+    }
+
     }
 
 
