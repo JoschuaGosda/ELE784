@@ -19,6 +19,9 @@
 #define LSR_DR 0x01
 #define LSR_TEMT 0x40
 #define LSR_THRE 0x20
+#define LSR_FE 0x08
+#define LSR_PE 0x04
+#define LSR_OE 0x02
 
 int SetDefaultConfig(uint16_t base_addr);
 int SetBaudRate(unsigned long arg,uint16_t base_addr);

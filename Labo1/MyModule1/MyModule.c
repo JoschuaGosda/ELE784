@@ -31,7 +31,7 @@ uint8_t LCR;
 
 irqreturn_t isrSerialPort(int num_irq, void *pdata){
 
-        
+      
     //check wich port : todo ?? does the pdata is already the right pdata
    // uint8_t portID =  pdata->numPort
 
@@ -46,6 +46,11 @@ irqreturn_t isrSerialPort(int num_irq, void *pdata){
      
     printk(KERN_ALERT"MyMod : interrupt check");
 
+    //testErrors
+    if(tpLSR & LSR_FE || tpLSR & LSR_PE ||tpLSR & LSR_OE) {
+        printk(KERN_ALERT"MyMod : int. ERROR ");
+        return IRQ_HANDLED;
+    }
     
     //RX  RBR - read
     if(tpLSR & LSR_DR) {
@@ -58,12 +63,27 @@ irqreturn_t isrSerialPort(int num_irq, void *pdata){
         
         wake_up_interruptible(&pdata_p->WrQ);
         printk(KERN_ALERT"MyMod : buffer count is %lu", pdata_p->buf_wr->count);
+        return IRQ_HANDLED;
     } 
 
+    // TX TEMT  tpLSR & LSR_TEMT &&
+    if( pdata_p->buf_wr->count <= 0 || tpLSR & LSR_TEMT) {
+        
+        //disable TX
+        printk(KERN_ALERT"MyMod : int. TX TEMT");
+        
+        IER &= ~ETBEI;
+        outb(IER, pdata_p->base_addr + IER_REG);
+
+        printk(KERN_ALERT"MyMod : buffer_wr emtpy");
+        wake_up_interruptible(&pdata_p->RdQ);
+
+        return IRQ_HANDLED;
+    }
 
     // TX THRE data to transmit
     if(tpLSR & LSR_THRE) {
-        printk(KERN_ALERT"MyMod : int. TX ");
+        printk(KERN_ALERT"MyMod : int. TX THRE");
        
         cb_pop(pdata_p->buf_wr,&tpdata);
         
@@ -73,16 +93,12 @@ irqreturn_t isrSerialPort(int num_irq, void *pdata){
         
         printk(KERN_ALERT"MyMod : buffer count is %lu", pdata_p->buf_wr->count);
         
-    }
-
-    // TX TEMT  tpLSR & LSR_TEMT &&
-    if( pdata_p->buf_wr->count == 0) {
-        //disable TX
         IER &= ~ETBEI;
         outb(IER, pdata_p->base_addr + IER_REG);
-        printk(KERN_ALERT"MyMod : buffer_wr emtpy");
-        wake_up_interruptible(&pdata_p->RdQ);
+        return IRQ_HANDLED;
     }
+
+
 
     return IRQ_HANDLED;
 }

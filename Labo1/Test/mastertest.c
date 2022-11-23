@@ -23,18 +23,18 @@ int main() {
 		printf("Selected Port is  0 as writer\n");
     		fd = open("/dev/MyModuleNode0", O_WRONLY);
     		if (fd < 0) {
-        	printf("Erreur d'ouverture = %d\n", fd);
-        	return -1;
+        		printf("Erreur d'ouverture = %d\n", fd);
+        		return -1;
     		}
 			printf("How many data to write\n");
     	 	scanf("%d",&tp1);
-    		 printf("Okay %d data to write\n",tp1);
-   		 char tp [tp1];
+    		printf("Okay %d data to write\n",tp1);
+   		 	char tp [tp1];
     		ret = write(fd, &tp,tp1);
 
     		if (ret < 1) {
      		   printf("Writing not possible, buffer full\n");
-   		 }
+   		 	}
    		 else {
     	    printf("%u data elements written \n", ret);
    	 	}
