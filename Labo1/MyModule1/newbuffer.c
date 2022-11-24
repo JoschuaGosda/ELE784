@@ -24,6 +24,7 @@ void cb_free(circular_buffer *cb)
 
 void cb_push(circular_buffer *cb, const void *item) // push back
 {
+  printk(KERN_WARNING"MyMod: BUFFer count is %lu, capacity is %lu \n", cb->count, cb->capacity);
   if (cb->count == cb->capacity)
   {
     // handle error

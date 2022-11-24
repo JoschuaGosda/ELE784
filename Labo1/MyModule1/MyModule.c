@@ -31,12 +31,6 @@ uint8_t LCR;
 
 irqreturn_t isrSerialPort(int num_irq, void *pdata){
 
-      
-    //check wich port : todo ?? does the pdata is already the right pdata
-   // uint8_t portID =  pdata->numPort
-
-    //get inb register
-    //LSR
     uint8_t tpLSR;
     uint8_t tpdata;
     struct pData *pdata_p =  pdata;
@@ -55,14 +49,15 @@ irqreturn_t isrSerialPort(int num_irq, void *pdata){
     //RX  RBR - read
     if(tpLSR & LSR_DR) {
         printk(KERN_ALERT"MyMod : int. RX ");
+
         LCR &= ~DLAB_REG;
         outb(LCR, pdata_p->base_addr + LCR_REG);     
         tpdata = inb(pdata_p->base_addr + RBR_REG); 
         
         cb_push(pdata_p->buf_rd,&tpdata);
         
-        wake_up_interruptible(&pdata_p->WrQ);
-        printk(KERN_ALERT"MyMod : buffer count is %lu", pdata_p->buf_wr->count);
+        wake_up_interruptible(&pdata_p->RdQ);
+        printk(KERN_ALERT"MyMod : buffer count is %lu of port %u", pdata_p->buf_wr->count,  pdata_p->numPort);
         return IRQ_HANDLED;
     } 
 
@@ -78,23 +73,25 @@ irqreturn_t isrSerialPort(int num_irq, void *pdata){
         outb(LCR, pdata_p->base_addr + LCR_REG); 
         outb(tpdata,pdata_p->base_addr + THR_REG);
         
-        printk(KERN_ALERT"MyMod : buffer count is %lu", pdata_p->buf_wr->count);
+        printk(KERN_ALERT"MyMod : buffer count is %lu of port %u", pdata_p->buf_wr->count, pdata_p->numPort);
         
 	    //No more data to Transmit
-    if( pdata_p->buf_wr->count <= 0 ) {
+        if( pdata_p->buf_wr->count <= 0 ) {
         
         //disable TX
         printk(KERN_ALERT"MyMod : no more data");
-        
+
+        LCR &= ~DLAB;
+        outb(LCR, pdata_p->base_addr + LCR_REG);
         IER &= ~ETBEI;
         outb(IER, pdata_p->base_addr + IER_REG);
 
-        printk(KERN_ALERT"MyMod : buffer_wr emtpy");
-        wake_up_interruptible(&pdata_p->RdQ);
+        printk(KERN_ALERT"MyMod : buffer_wr emtpy of port %u ", pdata_p->numPort);
+        wake_up_interruptible(&pdata_p->WrQ);
 
 
         return IRQ_HANDLED;
-    }
+        }
 
     }
 
@@ -224,6 +221,7 @@ static int MyModule_open(struct inode *inode, struct file *filp) {
                 return -EACCES;
             } else {
                 pdata_p->fREAD = true;
+
                 
             }
             break;
@@ -249,8 +247,7 @@ static int MyModule_open(struct inode *inode, struct file *filp) {
             } else {
                 pdata_p->fWRITE = true;
                 pdata_p->fREAD = true;
-                IER &= ~(ETBEI);
-                IER |= ERBFI;
+                IER &= ~(ETBEI);                
                 outb(IER, pdata_p->base_addr + IER_REG);
             }
             break;
@@ -278,6 +275,14 @@ static ssize_t MyModule_read(struct file *filp, char *buff, size_t len,
     struct pData *pdata_p = filp->private_data;
 
     printk(KERN_WARNING "MyMod: READ ask:%lu\n",len);
+
+    LCR &= ~DLAB;
+    outb(LCR, pdata_p->base_addr + LCR_REG);
+
+    IER |= ERBFI;
+    outb(IER, pdata_p->base_addr + IER_REG);
+
+
 
     spin_lock_irq(&pdata_p->splock);
     // TODO: protection d'access
@@ -318,19 +323,18 @@ static ssize_t MyModule_read(struct file *filp, char *buff, size_t len,
 
     // data in the buffer , on ajuste le compte , plus petit entre ask et
     // available
-    count = (len <= cb_count(pdata_p->buf_rd))
-                ? len
-                : cb_count(pdata_p->buf_rd);
+    count = (len <= cb_count(pdata_p->buf_rd)) ? len : cb_count(pdata_p->buf_rd);
 
     // retire content of ring buffer to local buffer une a la fois
 
     printk(KERN_WARNING "MyMod: count value is %u", (int) count);
 
-
+    spin_lock_irq(&pdata_p->splock);
     for (i = 0; i < count; i++) {
         cb_pop(pdata_p->buf_rd, &(BufR[i]));
     }
-    printk(KERN_WARNING "MyMod: Read after pop buff_count : %lu",cb_count(pdata_p->buf_rd));
+    printk(KERN_ALERT "MyMod: Read after pop buff_count : %lu",cb_count(pdata_p->buf_rd));
+    spin_lock_irq(&pdata_p->splock);
     // mutex_unlock(&pdata_p->mutex);
     
    // wake_up_interruptible(&pdata_p->WrQ);
@@ -352,6 +356,11 @@ static ssize_t MyModule_read(struct file *filp, char *buff, size_t len,
         // returning how many data  was really send
         retval = count - left;
     }
+
+    LCR &= ~DLAB;
+    outb(LCR, pdata_p->base_addr + LCR_REG);
+    IER &= ~ERBFI;
+    outb(IER, pdata_p->base_addr + IER_REG);
    
     return retval;
 }
@@ -371,17 +380,20 @@ static ssize_t MyModule_write(struct file *filp, const char *buff, size_t len,
     if (!((filp->f_flags & O_ACCMODE) == O_WRONLY ||
           (filp->f_flags & O_ACCMODE) == O_RDWR)) {
         spin_unlock_irq(&pdata_p->splock);
+        printk(KERN_WARNING "MyMod: WRITE protection problem\n");
         return -EACCES;
     }
     spin_unlock_irq(&pdata_p->splock);
 
     printk(KERN_WARNING "MyMod: WRITE\n");
     if (down_interruptible(&pdata_p->sem)) { // returns 0 if sucess
+        printk(KERN_WARNING "MyMod: WRITE semaphore not available\n");
         return -ERESTARTSYS;
     }
 
 
     buffer_capacity = cb_getBufferSize(pdata_p->buf_wr);
+    printk(KERN_WARNING "MyMod: WRITE buffer capacity is %ld\n", buffer_capacity);
 
     if (pdata_p->buf_wr->count == buffer_capacity) {  // buffer is full(if buffsize = 10 then 0 to 9
         up(&pdata_p->sem);
@@ -405,9 +417,7 @@ static ssize_t MyModule_write(struct file *filp, const char *buff, size_t len,
     }
 
     // place is buffer, ajust count. wich one is minimal ASK or AVAILABLE ?
-    count = (len <= buffer_capacity - pdata_p->buf_wr->count)
-                ? len
-                : (buffer_capacity - pdata_p->buf_wr->count);
+    count = (len <= buffer_capacity - pdata_p->buf_wr->count) ? len : (buffer_capacity - pdata_p->buf_wr->count);
 
     printk(KERN_WARNING "MyMod: WRITE count : %lu\n",count);
 
@@ -421,17 +431,21 @@ static ssize_t MyModule_write(struct file *filp, const char *buff, size_t len,
             printk(KERN_WARNING "MyMod: WRITE SUCCES\n");
             //mutex_lock(&pdata_p->mutex);
             //  copy content of local buffer to ring buffer une a la fois
-
+            spin_lock_irq(&pdata_p->splock);
             for (i = 0; i < count; i++) {
                 cb_push(pdata_p->buf_wr, &(BufW[i]));
             }
+            spin_unlock_irq(&pdata_p->splock);
+            printk(KERN_ALERT "MyMod: WRITE buff count : %lu",
+                cb_count(pdata_p->buf_wr));
             up(&pdata_p->sem);
-           // wake_up_interruptible(&pdata->RdQ);
+
+            LCR &= ~DLAB;
+            outb(LCR, pdata_p->base_addr + LCR_REG); 
             IER |= ETBEI;
             outb(IER, pdata_p->base_addr + IER_REG);
 
-            printk(KERN_WARNING "MyMod: WRITE buff count : %lu",
-                cb_count(pdata_p->buf_wr));
+            
             //mutex_unlock(&pdata_p->mutex);
         } else {
             // some data was not copy from user space to kernel space, is not written to global buffer at all -> return 0
