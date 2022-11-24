@@ -32,13 +32,17 @@ uint8_t LCR;
 irqreturn_t isrSerialPort(int num_irq, void *pdata){
 
     uint8_t tpLSR;
+    uint8_t tpIER;
     uint8_t tpdata;
     struct pData *pdata_p =  pdata;
 
 
+    LCR &= ~DLAB_REG;
+    outb(LCR, pdata_p->base_addr + LCR_REG);  
+
     tpLSR = inb(pdata_p->base_addr + LSR_REG); // line status register
-     
-    printk(KERN_ALERT"MyMod : interrupt check");
+    tpIER = inb(pdata_p->base_addr + IER_REG); // line status register
+    printk(KERN_ALERT"MyMod : interrupt check LSR:%u, IER: %u ",tpLSR,tpIER);
 
     //testErrors
     if(tpLSR & LSR_FE || tpLSR & LSR_PE ||tpLSR & LSR_OE) {
@@ -46,16 +50,20 @@ irqreturn_t isrSerialPort(int num_irq, void *pdata){
         return IRQ_HANDLED;
     }
     
-    //RX  RBR - read
+    //RX  Reception
     if(tpLSR & LSR_DR) {
         printk(KERN_ALERT"MyMod : int. RX ");
 
         LCR &= ~DLAB_REG;
         outb(LCR, pdata_p->base_addr + LCR_REG);     
-        tpdata = inb(pdata_p->base_addr + RBR_REG); 
-        
-        cb_push(pdata_p->buf_rd,&tpdata);
-        
+        tpdata = inb(pdata_p->base_addr + RBR_REG);
+
+        if(pdata_p->buf_rd->count < pdata_p->buf_rd->capacity ) {
+            //on ecrit si il y a de place
+            cb_push(pdata_p->buf_rd,&tpdata);
+        }
+                
+        //tell a waiting reading there is now space in buffer
         wake_up_interruptible(&pdata_p->RdQ);
         printk(KERN_ALERT"MyMod : buffer count is %lu of port %u", pdata_p->buf_wr->count,  pdata_p->numPort);
         return IRQ_HANDLED;
@@ -78,24 +86,21 @@ irqreturn_t isrSerialPort(int num_irq, void *pdata){
 	    //No more data to Transmit
         if( pdata_p->buf_wr->count <= 0 ) {
         
-        //disable TX
-        printk(KERN_ALERT"MyMod : no more data");
+            //disable TX
+            printk(KERN_ALERT"MyMod : no more data");
 
-        LCR &= ~DLAB;
-        outb(LCR, pdata_p->base_addr + LCR_REG);
-        IER &= ~ETBEI;
-        outb(IER, pdata_p->base_addr + IER_REG);
+            LCR &= ~DLAB;
+            outb(LCR, pdata_p->base_addr + LCR_REG);
+            IER &= ~ETBEI;
+            outb(IER, pdata_p->base_addr + IER_REG);
 
-        printk(KERN_ALERT"MyMod : buffer_wr emtpy of port %u ", pdata_p->numPort);
-        wake_up_interruptible(&pdata_p->WrQ);
-
-
-        return IRQ_HANDLED;
+            printk(KERN_ALERT"MyMod : buffer_wr emtpy of port %u ", pdata_p->numPort);
+            //tell  a waiting writer there is now space in buffer
+            wake_up_interruptible(&pdata_p->WrQ);
+            return IRQ_HANDLED;
         }
 
     }
-
-
 
     return IRQ_HANDLED;
 }
@@ -126,8 +131,8 @@ static int __init mod_init(void) {
 
     for (n = 0; n < PORTNUMBER; n++) {
 
-	pdata[n].buf_rd = (circular_buffer *) kmalloc(sizeof(circular_buffer), GFP_KERNEL);
-	pdata[n].buf_wr = (circular_buffer *) kmalloc(sizeof(circular_buffer), GFP_KERNEL);
+	    pdata[n].buf_rd = (circular_buffer *) kmalloc(sizeof(circular_buffer), GFP_KERNEL);
+	    pdata[n].buf_wr = (circular_buffer *) kmalloc(sizeof(circular_buffer), GFP_KERNEL);
 
         cb_init(pdata[n].buf_rd, BUFFER_CAPACITY, BUFFER_ELEMENTSIZE);
 	    cb_init(pdata[n].buf_wr, BUFFER_CAPACITY, BUFFER_ELEMENTSIZE);
@@ -141,17 +146,15 @@ static int __init mod_init(void) {
         mutex_init(&pdata[n].mutex);
         init_waitqueue_head(&pdata[n].RdQ);
         init_waitqueue_head(&pdata[n].WrQ);
-
-
     }
 
-	    pdata[0].base_addr = 0xc030; //todo verif
-	    pdata[0].num_interupt = 20;
-        SetDefaultConfig(pdata[0].base_addr);
+	pdata[0].base_addr = 0xc030;    
+	pdata[0].num_interupt = 20;
+    SetDefaultConfig(pdata[0].base_addr);
 
-	    pdata[1].base_addr = 0xc020; //todo verif
-	    pdata[1].num_interupt = 21;
-        SetDefaultConfig(pdata[1].base_addr);
+	pdata[1].base_addr = 0xc020;    
+	pdata[1].num_interupt = 21;
+    SetDefaultConfig(pdata[1].base_addr);
    
     if (request_region(pdata[0].base_addr, number, "hellobonjour") == NULL) {
         printk(KERN_WARNING "MyMod : request_region() unsuccesfull--------0 \n");
@@ -172,9 +175,7 @@ static int __init mod_init(void) {
         release_region(pdata[1].base_addr, number);
     }
 
-    cdev_add(&My_cdev, My_dev,
-             PORTNUMBER);  // add pilote to the kernel - struct cdev, dev number
-                           // (/dev/My_dev1), int count
+    cdev_add(&My_cdev, My_dev, PORTNUMBER);  
     printk(KERN_WARNING "MyMod : Kernel Module initilized with number  %u\n",
            MyModule_X);
 
@@ -200,9 +201,7 @@ static int MyModule_open(struct inode *inode, struct file *filp) {
     if (pdata_p->owner < 0) {
         pdata_p->owner = current_uid().val;
         printk(KERN_WARNING "MyMod: New owner is set to %u", pdata_p->owner);
-    } else if (0/*pdata_p->owner != current_uid().val*/)  // TODO 2e time the
-                                                            // same owner open
-                                                            // its the #3026 ??
+    } else if (0/*pdata_p->owner != current_uid().val*/)  
     {
         printk(KERN_WARNING "MyMod: ERR current user is :%u and new is : %u",
                pdata_p->owner, current_uid().val);
@@ -221,7 +220,13 @@ static int MyModule_open(struct inode *inode, struct file *filp) {
                 return -EACCES;
             } else {
                 pdata_p->fREAD = true;
+		
+    		LCR &= ~DLAB;
+    		outb(LCR, pdata_p->base_addr + LCR_REG);
 
+    		IER |= ERBFI;
+            IER &= ~ETBEI;
+   		    outb(IER, pdata_p->base_addr + IER_REG);
                 
             }
             break;
@@ -234,7 +239,7 @@ static int MyModule_open(struct inode *inode, struct file *filp) {
                 return -EACCES;
             } else {
                 pdata_p->fWRITE = true;
-                IER &= ~(ETBEI);
+                IER &= ~(ETBEI|ERBFI);
                 outb(IER, pdata_p->base_addr + IER_REG);
             }
             break;
@@ -260,7 +265,7 @@ static int MyModule_open(struct inode *inode, struct file *filp) {
     }
     spin_unlock_irq(&pdata_p->splock);
 
-    // TODO: Port Série doit être placé en mode Réception
+ 
     printk(KERN_WARNING "MyMod: OPEN end\n");
     return 0;
 }
@@ -276,11 +281,6 @@ static ssize_t MyModule_read(struct file *filp, char *buff, size_t len,
 
     printk(KERN_WARNING "MyMod: READ ask:%lu\n",len);
 
-    LCR &= ~DLAB;
-    outb(LCR, pdata_p->base_addr + LCR_REG);
-
-    IER |= ERBFI;
-    outb(IER, pdata_p->base_addr + IER_REG);
 
 
 
@@ -334,13 +334,9 @@ static ssize_t MyModule_read(struct file *filp, char *buff, size_t len,
         cb_pop(pdata_p->buf_rd, &(BufR[i]));
     }
     printk(KERN_ALERT "MyMod: Read after pop buff_count : %lu",cb_count(pdata_p->buf_rd));
-    spin_lock_irq(&pdata_p->splock);
-    // mutex_unlock(&pdata_p->mutex);
-    
-   // wake_up_interruptible(&pdata_p->WrQ);
+    spin_unlock_irq(&pdata_p->splock);
     up(&pdata_p->sem);
-    // printk(KERN_WARNING "MyMod: copied from ring buffer to local buffer \n");
-    //printk(KERN_WARNING "MyMod: popped data elements from global buffer");
+
 
     // retval is number of elements that are taken from global
     retval = count;

@@ -1,0 +1,39 @@
+check uvc 
+lsmod | grep uvc
+sudo modprobe -r uvcvideo
+
+------------modprobe-------- 1
+ 
+appeler pour chaque interface ( 4x )
+
+reperer les interfaces qui nous interrese
+
+aller verifier cur_altsetting (forni par un ptr qui vien du core) 
+
+ex p27 oublier la boucle for 
+important 
+usb_set_intfdata
+usb_register_dev
+usb_set_interface
++ skeldev->usb = usb_get_dev(dev)
+
+
+detecter la bonne classe puis se connecter
+
+
+
+-----------disconnect-----
+unregister
+si urb ont ete lancer: les fermer avant de disconnect
+
+-----open----
+fait !
+
+
+-----ioCTL----2
+get/set
+pour get s"inspire set
+
+----pan/til ---- 3
+remplir la stuct avec data[2] puis la transmettre avec fct de communication (p 32 a 35)
+(communication sans urb) usb_control_message 
