@@ -53,6 +53,8 @@ int ele784_probe(struct usb_interface *interface, const struct usb_device_id *id
           usb_register_dev(interface,&class_control_driver);
           usb_set_interface(dev->device ,iface_desc->desc.bInterfaceNumber,0);
           usb_set_intfdata(interface,NULL);
+          printk(KERN_INFO "ELE784 -> Probe Video Control \n");
+          return 0;
         }
         break;
       case (SC_VIDEOSTREAMING):
@@ -61,12 +63,15 @@ int ele784_probe(struct usb_interface *interface, const struct usb_device_id *id
           usb_register_dev(interface,&class_stream_driver);
           usb_set_interface(dev->device ,iface_desc->desc.bInterfaceNumber,0);
           usb_set_intfdata(interface,NULL);
+          printk(KERN_INFO "ELE784 -> Probe Video streaming \n");
+          return 0;
         }
 			  break;
 
       default:
         break;
-	
+      
+    }
 	
 	}
 
@@ -263,28 +268,8 @@ Ici, il faut transmettre la commande de Reset reçue de l'usager
 }
 
 ssize_t ele784_read(struct file *file, char __user *buffer, size_t count, loff_t *f_pos) {
-/*******************************************************************************
 
-	Ici, il faut :
-	
-		1 -	Lever le drapeau de "Status" BUF_STREAM_READ dans le "frame_buf"
-			pour mettre le Video Streaming en mode lecture et attendre le début
-			d'un nouveau Frame.
-			
-		2 -	Répéter ce qui suit jusqu'à la détection de la fin du Frame :
-					( Drapeau BUF_STREAM_EOF dans Status )
-
-				a -	Attend la fin d'un Urb.
-
-				b -	Récupère les données produites par ce Urb.
-
-				c -	Transmet les données récupérées à l'usager.
-				
-		3 -	Baisse tous les drapeaux dans Status et retourne le nombre total
-			de bytes qui ont été transmit à l'usager.
-
-*/
 int i= 0;
-return i; 
+return (ssize_t) count; 
 
 }

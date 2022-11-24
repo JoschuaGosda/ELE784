@@ -37,3 +37,27 @@ pour get s"inspire set
 ----pan/til ---- 3
 remplir la stuct avec data[2] puis la transmettre avec fct de communication (p 32 a 35)
 (communication sans urb) usb_control_message 
+
+
+
+/*******************************************************************************
+
+	Ici, il faut :
+	
+		1 -	Lever le drapeau de "Status" BUF_STREAM_READ dans le "frame_buf"
+			pour mettre le Video Streaming en mode lecture et attendre le début
+			d'un nouveau Frame.
+			
+		2 -	Répéter ce qui suit jusqu'à la détection de la fin du Frame :
+					( Drapeau BUF_STREAM_EOF dans Status )
+
+				a -	Attend la fin d'un Urb.
+
+				b -	Récupère les données produites par ce Urb.
+
+				c -	Transmet les données récupérées à l'usager.
+				
+		3 -	Baisse tous les drapeaux dans Status et retourne le nombre total
+			de bytes qui ont été transmit à l'usager.
+
+*/
