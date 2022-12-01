@@ -52,7 +52,8 @@ int ele784_probe(struct usb_interface *interface, const struct usb_device_id *id
         if(iface_desc->desc.bInterfaceNumber == 0) {
           usb_register_dev(interface,&class_control_driver);
           usb_set_interface(dev->device ,iface_desc->desc.bInterfaceNumber,0);
-          usb_set_intfdata(interface,NULL);
+          //lie l'interface a une struct locale
+          usb_set_intfdata(interface,dev);
           printk(KERN_INFO "ELE784 -> Probe Video Control \n");
           return 0;
         }
@@ -62,7 +63,8 @@ int ele784_probe(struct usb_interface *interface, const struct usb_device_id *id
         if(iface_desc->desc.bInterfaceNumber == 1) {
           usb_register_dev(interface,&class_stream_driver);
           usb_set_interface(dev->device ,iface_desc->desc.bInterfaceNumber,0);
-          usb_set_intfdata(interface,NULL);
+          //lie l'interface a une struct locale
+          usb_set_intfdata(interface,dev);
           printk(KERN_INFO "ELE784 -> Probe Video streaming \n");
           return 0;
         }
@@ -90,6 +92,14 @@ void ele784_disconnect (struct usb_interface *intf) {
 /*******************************************************************************
 Ici, il faut s'assurer d'éliminer tous Urb en cours et se détacher de l'interface
 *******************************************************************************/
+//détacher la struc local de l'interface
+
+
+//déinscrire l'unité du Noyau 
+struct orbit_driver *dev = (struct orbit_driver)usb_get_intfdata(intf);
+usb_deregister_dev(intf,dev->usb_class_driver);
+kfree(dev);
+
 }
 
 
@@ -115,7 +125,38 @@ long ele784_ioctl(struct file *file, unsigned int cmd, unsigned long arg) {
 Ici, il faut transmettre la requête de l'usager et retourner à l'usager la réponse du périphérique.
 	(voir la commande IOCTL_SET ci-dessous comme exemple de transmission d'une requête)
 *******************************************************************************/
-   break;
+  printk(KERN_INFO "ELE784 -> IOCTL_G_GET\n");
+
+  copy_from_user(&user_request, (struct usb_request *)arg, sizeof(struct usb_request));
+  
+  data_size = user_request.data_size;
+  request   = user_request.request;
+  value     = (user_request.value) << 8;
+  index     = (user_request.index) << 8 | interface->cur_altsetting->desc.bInterfaceNumber;
+  timeout   = user_request.timeout;
+  data      = NULL;
+
+  if (data_size > 0) {
+    data = kmalloc(data_size, GFP_KERNEL);
+    //copy_from_user(data, ((uint8_t __user *) user_request.data), data_size*sizeof(uint8_t));
+  }
+  //aller chercher la config
+  usb_control_msg(udev,
+                  usb_sndctrlpipe(udev, 0x00),
+                  request,
+                  USB_DIR_IN | USB_TYPE_CLASS | USB_RECIP_INTERFACE,
+                  value, index, data, data_size, timeout);
+                
+
+  //envoyer l'info 
+ copy_to_user(data, ((uint8_t __user *) user_request.data), data_size*sizeof(uint8_t));
+
+    if (data) {
+    kfree(data);
+    data = NULL;
+  }
+
+  break;
 
   case IOCTL_SET:
     printk(KERN_INFO "ELE784 -> IOCTL_SET\n");
