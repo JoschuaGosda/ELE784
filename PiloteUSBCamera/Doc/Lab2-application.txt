@@ -1,0 +1,37 @@
+Présentation LAB2 – Application
+
+On a deux interfaces :
+- Video_control (interface 0)
+exposé du côté usager, un nœud apparait dev/camera_control
+Permet de contrôler les moteurs
+- Video_streaming (interface 1)
+exposé du côté usager, un nœud apparait dev/camera_stream
+Permet de contrôler la caméra
+12 interfaces alternatives : endpoint isochronous 
+exemple : pour l’interface alternatives 1 le endpoint isochronous fournit des paquets de 192 bytes (voir photos)
+La différence entre les interfaces alternatives est la taille des paquets fournis par le endpoint isochronous, ceci est dû à la résolution de l’image.
+Pour la fonction alternatives 0 rien car il n’y a pas de vidéos, seulement de la configuration.
+
+Procédure pour changer la résolution d’image :
+1/ Get_Def → IOCTL_GET
+2/ Set_Cur → IOCTL_SET
+	→ format_index
+	→ frame_index
+3/ Get_Cur → IOCTL_GET
+4/ Set_Cur → IOCTL_SET
+(US_COMMIT_CONTROL)
+
+L’interface alternative 0 est essentiellement : pas de vidéos et c’est ici que l’on va faire les configurations
+
+Dans le code fourni logitech_orbit_driver.c il faut trouver la fonction alternative mais avant de le faire il faut d’abord demander à la caméra au.elle est sa configuration courante 
+
+STREAM ON :
+1/ Get_CUR (US_PROBE_CONTROL) → retourne tableau Data de 26 bytes contenant la config courantre :
+- data_size = 26
+- request = GET_CUR
+- value = VS.PROBE_CONTROL “ 8
+- index = (0x0000<<8)\ bInterfaceNumber
+- timeout = 5000
+- data ← alloué dynamiquement
+
+Pour arrêter la caméra : placer la caméra dans l’interface alternative 0, pour le faire usb_set_interface(udev, 1, best_altset)
