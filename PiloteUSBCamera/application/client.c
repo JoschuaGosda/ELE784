@@ -67,7 +67,7 @@ int main(int argc, char *argv[]) {
 	ioctl_request.timeout   = 5000;
 	ioctl_request.data      = data;
 	*format_index = 2;
-	*frame_index  = 15;
+	*frame_index  = 1;// to default
 	// frame_index :
 	// 	1 =>	640x480	(par défaut)
 	// 	2 =>	160x90
@@ -145,7 +145,7 @@ int main(int argc, char *argv[]) {
 	}
 	
 	// Etape # 6 :	Test camera Pan and Tilt Reset
-	{	int16_t Data = 0x03;
+	{	uint8_t Data = 0x03;
 
 		ret = ioctl(camera_stream, IOCTL_PANTILT_RESET, &Data);
 		if (ret < 0)
