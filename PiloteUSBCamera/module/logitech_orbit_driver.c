@@ -41,7 +41,15 @@ int ele784_probe(struct usb_interface *interface, const struct usb_device_id *id
   for (i = 0; i < URB_COUNT; ++i) {
     dev->isoc_in_urb[i] = NULL;
   }
+/*******************************************************************************
 
+--------------------FAIT--------------------
+
+	Dans cette partie, il faut détecter les interfaces désirées et s'y attacher.
+	Les interfaces que nous voulons sont :
+								Video Streaming
+								Video Control
+*******************************************************************************/
   iface_desc = interface->cur_altsetting;
 
 	if(iface_desc->desc.bInterfaceClass == CC_VIDEO) {
@@ -77,12 +85,7 @@ int ele784_probe(struct usb_interface *interface, const struct usb_device_id *id
 	
 	}
 
-/*******************************************************************************
-	Dans cette partie, il faut détecter les interfaces désirées et s'y attacher.
-	Les interfaces que nous voulons sont :
-								Video Streaming
-								Video Control
-*******************************************************************************/
+
 
   return retval;
 }
@@ -93,7 +96,7 @@ void ele784_disconnect (struct usb_interface *intf) {
 Ici, il faut s'assurer d'éliminer tous Urb en cours et se détacher de l'interface
 *******************************************************************************/
 //détacher la struc local de l'interface
-
+//TODO  déallouer les  5 urbs
 printk(KERN_WARNING "ELE784 -> Disconnect\n");
 //déinscrire l'unité du Noyau 
 struct orbit_driver *dev = (struct orbit_driver *) usb_get_intfdata(intf);
@@ -102,7 +105,7 @@ kfree(dev);
 
 }
 
-
+/*-----------------------------------------------------------------------------------------------------------------------------------------------------*/
 long ele784_ioctl(struct file *file, unsigned int cmd, unsigned long arg) {
   struct orbit_driver  *driver = (struct orbit_driver *) file->private_data;
   struct usb_interface *interface = driver->interface;
@@ -122,10 +125,12 @@ long ele784_ioctl(struct file *file, unsigned int cmd, unsigned long arg) {
 
   case IOCTL_GET:
 /*******************************************************************************
+-------------------FAIT-------------------
+
 Ici, il faut transmettre la requête de l'usager et retourner à l'usager la réponse du périphérique.
 	(voir la commande IOCTL_SET ci-dessous comme exemple de transmission d'une requête)
 *******************************************************************************/
-  printk(KERN_INFO "ELE784 -> IOCTL_G_GET\n");
+  printk(KERN_INFO "ELE784 -> IOCTL_GET\n");
 
   copy_from_user(&user_request, (struct usb_request *)arg, sizeof(struct usb_request));
   
@@ -260,10 +265,24 @@ Les données récoltées grâce à cette requête seront ensuite utilisées pour
         		return -ENOMEM;
       		}
 
-/*******************************************************************************
-Ici, il s'agit d'initialiser l'Urb Isochronous (voir acétate 16 du cours # 5)
-Suggestion :	Attacher la structure (driver->frame_buf) au champ "context" de la structure du Urb.
-*******************************************************************************/
+          /*******************************************************************************
+          --------------------FAIT, TO TEST--------------------
+
+          Ici, il s'agit d'initialiser l'Urb Isochronous (voir acétate 16 du cours # 5)
+          Suggestion :	Attacher la structure (driver->frame_buf) au champ "context" de la structure du Urb.
+          *******************************************************************************/
+          driver->isoc_in_urb[i]->dev = udev;
+          driver->isoc_in_urb[i]->context = drive->frame_buf;
+          driver->isoc_in_urb[i]->pipe = usb_rcvisocpipe(udev,alts->desc.bNumEndpoints);
+          driver->isoc_in_urb[i]->transfer_flags = URB_ISO_ASAP | URB_NO_TRANSFER_DMA_MAP;
+          driver->isoc_in_urb[i]->interval = alts->desc.bInterfaceNumber;
+          driver->isoc_in_urb[i]->complete = &complete_callback;
+          driver->isoc_in_urb[i]->number_of_packets = npackets;
+          driver->isoc_in_urb[i]->transfer_buffer_length = size;
+          for (j = 0; j < npackets; ++j) {
+            driver->isoc_in_urb[i]->iso_frame_desc[j].offset = j * urb_size;
+            driver->isoc_in_urb[i]->iso_frame_desc[j].length = urb_size;
+          }
 
     	}
 // Et on lance tous les Urbs créés. 
@@ -367,7 +386,38 @@ Ici, il faut transmettre la commande de Reset reçue de l'usager
 
 ssize_t ele784_read(struct file *file, char __user *buffer, size_t count, loff_t *f_pos) {
 
-int i= 0;
-return (ssize_t) count; 
+  struct orbit_driver  *driver = (struct orbit_driver *) file->private_data;
+/*  
+  //allocation size of count 
+  // créer un urb
+  struct urb *urb;
+
+  driver->frame_buf.Status |= BUF_STREAM_READ;
+  
+  urb = kzalloc(sizeof(urb),GFP_KERNEL);
+  // on attend l'arrivée d'une prochaine image START
+    wait_for_completion(driver->frame_buf.new_frame_start);
+
+
+  while(!(driver->frame_buf.Status && BUF_STREAM_EOF)) {
+    // on attend la fin d'un urb
+    wait_for_completion(driver->frame_buf.urb_completion);
+    // une fois une completion faite, on récupère les données du urb 
+    complete_callback(urb);
+    // le callback va remplir le buffer
+    // on doit faire mem copy  callback -> pilote + offset
+
+
+
+
+
+  }
+*/
+  // une fois tous les urb recu on envoie a l'usager
+  // copy_to_user
+
+  // free allocation 
+  int i= 0;
+  return (ssize_t) count; 
 
 }

@@ -61,3 +61,10 @@ remplir la stuct avec data[2] puis la transmettre avec fct de communication (p 3
 			de bytes qui ont été transmit à l'usager.
 
 */
+
+bit pour start read et stop.
+remettre le packet #id a 0 avec un start.
+
+loop jusqu'à ce que tous les packets soient arrivés.
+
+
