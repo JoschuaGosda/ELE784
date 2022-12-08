@@ -94,10 +94,10 @@ Ici, il faut s'assurer d'éliminer tous Urb en cours et se détacher de l'interf
 *******************************************************************************/
 //détacher la struc local de l'interface
 
-
+printk(KERN_WARNING "ELE784 -> Disconnect\n");
 //déinscrire l'unité du Noyau 
-struct orbit_driver *dev = (struct orbit_driver)usb_get_intfdata(intf);
-usb_deregister_dev(intf,dev->usb_class_driver);
+struct orbit_driver *dev = (struct orbit_driver *) usb_get_intfdata(intf);
+usb_deregister_dev(intf,dev->class_driver);
 kfree(dev);
 
 }
@@ -291,13 +291,70 @@ Pour arrêter le Streaming de la caméra, il suffit de rendre "courant" l'interf
 /*******************************************************************************
 Ici, il faut transmettre le tableau [Pan, Tilt] reçu de l'usager 
 *******************************************************************************/
-    break;
+  printk(KERN_INFO "ELE784 -> IOCTL_PANTILT_RELATIVE\n");
+
+  copy_from_user(&user_request, (struct usb_request *)arg, sizeof(struct usb_request));
+
+  data_size = 4;
+  request   = 0x01;
+  value     = 0x0100;
+  index     = 0x0B00;
+  timeout   = 500;
+  data      = NULL;
+
+  if (data_size > 0) {
+    data = kmalloc(data_size, GFP_KERNEL);
+    copy_from_user(data, ((int16_t __user *) user_request.data), data_size*sizeof(uint8_t));
+  }
+  
+  retval = usb_control_msg(udev,
+                            usb_sndctrlpipe(udev, 0x00),
+                            request,
+                            USB_DIR_OUT | USB_TYPE_CLASS | USB_RECIP_INTERFACE,
+                            value, index, data, data_size, timeout);
+  if (data) {
+    kfree(data);
+    data = NULL;
+  }
+    
+  
+  break;
 
   case IOCTL_PANTILT_RESET:
 /*******************************************************************************
 Ici, il faut transmettre la commande de Reset reçue de l'usager 
 *******************************************************************************/
-    break;
+  printk(KERN_INFO "ELE784 -> IOCTL_PANTILT_RESET\n");
+
+  copy_from_user(&user_request, (struct usb_request *)arg, sizeof(struct usb_request));
+
+  data_size = 1;
+  request   = 0x01;
+  value     = 0x0200;
+  index     = 0x0B00;
+  timeout   = 500;
+  data      = NULL;
+
+  if (data_size > 0) {
+    data = kmalloc(data_size, GFP_KERNEL);
+    copy_from_user(data, ((uint8_t __user *) user_request.data), data_size*sizeof(uint8_t));
+  }
+  
+  if (!(*data == 0x01 || *data == 0x02 || *data == 0x03)) {
+    printk(KERN_WARNING "ELE784 -> IOCTL Error Invalid Data Value\n");
+    return -EINVAL;
+  }
+
+  retval = usb_control_msg(udev,
+                            usb_sndctrlpipe(udev, 0x00),
+                            request,
+                            USB_DIR_OUT | USB_TYPE_CLASS | USB_RECIP_INTERFACE,
+                            value, index, data, data_size, timeout);
+  if (data) {
+    kfree(data);
+    data = NULL;
+  }
+  break;
 
   default:
     printk(KERN_WARNING "ELE784 -> IOCTL Error\n");
