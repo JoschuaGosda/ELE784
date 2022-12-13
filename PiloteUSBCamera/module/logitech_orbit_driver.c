@@ -147,7 +147,7 @@ Ici, il faut transmettre la requête de l'usager et retourner à l'usager la ré
   }
   //aller chercher la config
   retval = usb_control_msg(udev,
-                  usb_sndctrlpipe(udev, 0x00),
+                  usb_rcvctrlpipe(udev, 0x00),
                   request,
                   USB_DIR_IN | USB_TYPE_CLASS | USB_RECIP_INTERFACE,
                   value, index, data, data_size, timeout);
