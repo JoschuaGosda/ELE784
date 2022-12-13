@@ -437,7 +437,8 @@ ssize_t ele784_read(struct file *file, char __user *buffer, size_t count, loff_t
   struct orbit_driver  *driver = (struct orbit_driver *) file->private_data;
 
   // créer un espace temporaire pour le data a recevoir des urb et transmettre au user
-  struct driver_buffer *buff_temp = kzalloc(sizeof(struct driver_buffer),GFP_KERNEL);
+  //struct driver_buffer *buff_temp = kzalloc(sizeof(struct driver_buffer),GFP_KERNEL);
+  struct driver_buffer buff_temp;
   uint16_t  buff_index = 0;
   printk(KERN_WARNING "ELE784 ->  READ\n"); 
 
@@ -448,7 +449,7 @@ ssize_t ele784_read(struct file *file, char __user *buffer, size_t count, loff_t
 
   // on attend l'arrivée d'une prochaine image START
   wait_for_completion(&(driver->frame_buf.new_frame_start));
-  driver->frame_buf.BytesUsed = 0;
+  //driver->frame_buf.BytesUsed = 0;
   printk(KERN_ALERT "ELE784 -> READ, newframe\n");
   
   do
@@ -456,23 +457,26 @@ ssize_t ele784_read(struct file *file, char __user *buffer, size_t count, loff_t
     printk(KERN_ALERT "ELE784 -> READ, while\n");
     wait_for_completion(&(driver->frame_buf.urb_completion));
     // une fois une completion faite, on récupère les données du urb dans notre buff temporaire(à l'endroit approprié)
-    complete_callback(*driver->isoc_in_urb);// + driver->frame_buf.BytesUsed);
-    memcpy(buff_temp + buff_index,driver->frame_buf.Data,driver->frame_buf.BytesUsed);
+    //complete_callback(*driver->isoc_in_urb);// + driver->frame_buf.BytesUsed);
+    memcpy(&buff_temp,&driver->frame_buf,sizeof(struct driver_buffer));
+    driver->frame_buf.BytesUsed = 0;
     printk(KERN_ALERT "ELE784 -> READ,Bytes Used:%u\n",driver->frame_buf.BytesUsed);
     //on incrémente l'index de notre buffer temporaire et on reset bythused
     buff_index +=driver->frame_buf.BytesUsed;
     driver->frame_buf.BytesUsed = 0;
-   
+
+    // une fois tous les urb recu on envoie a l'usager notre buffer temporaire construit 
+    copy_to_user(buffer +  buff_index * sizeof(uint8_t),buff_temp.Data, buff_temp.BytesUsed * sizeof(uint8_t));
+    buff_index += buff_temp.BytesUsed;
     // le callback va remplir le buffer
     // on doit faire mem copy  callback -> pilote + offset
 
 
-  }while(!(driver->frame_buf.Status & BUF_STREAM_EOF));
+  }while(!(buff_temp.Status & BUF_STREAM_EOF));
 
-  // une fois tous les urb recu on envoie a l'usager notre buffer temporaire construit 
-   copy_to_user(buffer,buff_temp,buff_index);
+  driver->frame_buf.Status = 0;
 
   // free allocation 
-  kfree(buff_temp);
-  return (ssize_t) count; 
+  //kfree(buff_temp);
+  return (ssize_t) buff_index; 
 }
