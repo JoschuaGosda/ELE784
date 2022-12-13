@@ -97,9 +97,10 @@ Ici, il faut s'assurer d'éliminer tous Urb en cours et se détacher de l'interf
 *******************************************************************************/
 //détacher la struc local de l'interface
 //TODO  déallouer les  5 urbs
-printk(KERN_WARNING "ELE784 -> Disconnect\n");
+
 //déinscrire l'unité du Noyau 
 struct orbit_driver *dev = (struct orbit_driver *) usb_get_intfdata(intf);
+printk(KERN_WARNING "ELE784 -> Disconnect\n");
 usb_deregister_dev(intf,dev->class_driver);
 kfree(dev);
 
@@ -115,9 +116,10 @@ long ele784_ioctl(struct file *file, unsigned int cmd, unsigned long arg) {
   uint8_t  request, data_size;
   uint16_t value, index, timeout;
   uint8_t  *data;
+  uint8_t dataTp;
 
-  int nbPackets = 40;
-
+ int urb_returnval;
+  
   int i,j;
   long retval=0;
 
@@ -193,20 +195,35 @@ Ici, il faut transmettre la requête de l'usager et retourner à l'usager la ré
     break;
 
   case IOCTL_STREAMON:
-    printk(KERN_INFO "ELE784 -> IOCTL_STREAMON\n");
+printk(KERN_INFO "ELE784 -> IOCTL_STREAMON\n");
 /*******************************************************************************
 Ici, il faut préparer et transmettre une requête similaire à un IOCTL_GET avec les caractéristiques suivantes :
-    data_size = 26
-    request   = GET_CUR
-    value     = VS_PROBE_CONTROL
-    index     = 0x0000
-    timeout   = 5000
+
 Les données récoltées grâce à cette requête seront ensuite utilisées pour configurer les requêtes Urb (voir ci-dessous).
 *******************************************************************************/
 		uint32_t bandwidth, psize, size, npackets, urb_size;
 		struct usb_host_endpoint *ep = NULL;
 		struct usb_host_interface *alts;
-		int	   best_altset;
+  	int	   best_altset;
+    
+    data_size = 26;
+    request   = GET_CUR;
+    value     = VS_PROBE_CONTROL << 8 ;
+    index     = 0x0000 << 8  | interface->cur_altsetting->desc.bInterfaceNumber;
+    timeout   = 5000;
+    data = NULL;
+
+   if (data_size > 0) {
+    data = kmalloc(data_size, GFP_KERNEL);
+    }
+
+    retval = usb_control_msg(udev,
+                  usb_rcvctrlpipe(udev, 0x00),
+                  request,
+                  USB_DIR_IN | USB_TYPE_CLASS | USB_RECIP_INTERFACE,
+                  value, index, data, data_size, timeout);
+
+
 // À partir des données de configurations obtenues, détermine la Bande Passante et la taille des transferts :	  
 		bandwidth = (((uint32_t) data[25]) << 24) | (((uint32_t) data[24]) << 16) | (((uint32_t) data[23]) << 8) | (((uint32_t) data[22]) << 0);
 		size      = (((uint32_t) data[21]) << 24) | (((uint32_t) data[20]) << 16) | (((uint32_t) data[19]) << 8) | (((uint32_t) data[18]) << 0);
@@ -225,7 +242,7 @@ Les données récoltées grâce à cette requête seront ensuite utilisées pour
 		if (ep == NULL) {
        		printk(KERN_WARNING "ELE784 -> IOCTL_STREAMON : No Endpoint found error");
        		return -ENOMEM;
-      	}
+    }
       	
 // Avec l'interface choisie, on détermine le nombre de Paquets que chaque Urb aura à transporter.
     	npackets = ((size % psize) > 0) ? (size/psize + 1) : (size/psize);
@@ -247,12 +264,14 @@ Les données récoltées grâce à cette requête seront ensuite utilisées pour
     		
     	printk(KERN_INFO "ELE784 -> IOCTL_STREAMON : bandwidth = %u psize = %u npackets = %u urb_size = %u best_altset = %u\n", bandwidth, psize, npackets, urb_size, best_altset);
     	
+ 
 // Ici, on rend "courante" l'interface alternative choisie comme étant la meilleure.
-    	retval = usb_set_interface(udev, 1, best_altset); //Important pour mettre la camera dans le bon mode
+      retval = usb_set_interface(udev, 1, best_altset); //Important pour mettre la camera dans le bon mode
+     
 
 // Finalement, on créé les Urbs Isochronous (un total de URB_COUNT Urbs).
     	for (i = 0; i < URB_COUNT; i++) {
-       		driver->isoc_in_urb[i] = usb_alloc_urb(nbPackets, GFP_KERNEL);
+       		driver->isoc_in_urb[i] = usb_alloc_urb(npackets, GFP_KERNEL);
        		if (driver->isoc_in_urb[i] == NULL) {
         		printk(KERN_WARNING "ELE784 -> IOCTL_STREAMON : URB allocation error");
         		return -ENOMEM;
@@ -273,33 +292,41 @@ Les données récoltées grâce à cette requête seront ensuite utilisées pour
           *******************************************************************************/
           driver->isoc_in_urb[i]->dev = udev;
           driver->isoc_in_urb[i]->context = &(driver->frame_buf);
-
-          // driver->isoc_in_urb[i]->context = udev;
-          driver->isoc_in_urb[i]->pipe = usb_rcvisocpipe(udev,alts->desc.bNumEndpoints);
+         // uint8_t endpointaddr = (uint8_t)&(alts->endpoint[0]);
+          //driver->isoc_in_urb[i]->pipe = usb_sndisocpipe(udev,endpointaddr );
+         // driver->isoc_in_urb[i]->pipe = usb_sndisocpipe(udev,ep->desc.bEndpointAddress);
+          driver->isoc_in_urb[i]->pipe = usb_rcvisocpipe(udev,interface->cur_altsetting->endpoint->desc.bEndpointAddress);
           driver->isoc_in_urb[i]->transfer_flags = URB_ISO_ASAP | URB_NO_TRANSFER_DMA_MAP;
-          driver->isoc_in_urb[i]->interval = alts->desc.bInterfaceNumber;
+          driver->isoc_in_urb[i]->interval = interface->cur_altsetting->endpoint->desc.bInterval; //must be set to 1 for isochronous
           driver->isoc_in_urb[i]->complete = &complete_callback;
           driver->isoc_in_urb[i]->number_of_packets = npackets;
-          driver->isoc_in_urb[i]->transfer_buffer_length = size;
+          driver->isoc_in_urb[i]->transfer_buffer_length = urb_size;
 
           for (j = 0; j < npackets; ++j) {
-            driver->isoc_in_urb[i]->iso_frame_desc[j].offset = j * urb_size;
-            driver->isoc_in_urb[i]->iso_frame_desc[j].length = urb_size;
+            driver->isoc_in_urb[i]->iso_frame_desc[j].offset = j * psize;
+            driver->isoc_in_urb[i]->iso_frame_desc[j].length = psize;
           }
-            // Et on lance tous les Urbs créés.????? dans le loop for ????
+
+    	}//fin for loop
+            // Et on lance tous les Urbs créés.
             /*******************************************************************************
             Ici, il s'agit de soumettre tous les Urbs créés ci-dessus.
             *******************************************************************************/
 
-          if(usb_submit_urb(driver->isoc_in_urb[i],GFP_KERNEL)) {
-            printk(KERN_WARNING "ELE784 -> IOCTL_STREAMON : submit urb error");
-            return -1;
-          }
-    	}//fin for loop
+     
+
+      for ( i =0; i < URB_COUNT ; i++) {
+        urb_returnval = usb_submit_urb(driver->isoc_in_urb[i],GFP_KERNEL);
+        if(urb_returnval != 0) {
+          printk(KERN_WARNING "ELE784 -> IOCTL_STREAMON : submit num :%d urb error : %d",i,urb_returnval);
+          return -1; 
+        } 
+      }
+
+          
+          
+
       printk(KERN_WARNING "ELE784 -> IOCTL_STREAMON : urb creation succes");
-
-	
-
     if (data) {
     	kfree(data);
     	data = NULL;
@@ -313,9 +340,11 @@ Les données récoltées grâce à cette requête seront ensuite utilisées pour
       Ici, il faut "tuer" et éliminer tous les Urbs qui sont actifs et arrêter le Streaming de la caméra.
       Pour arrêter le Streaming de la caméra, il suffit de rendre "courant" l'interface alternative 0.
       *******************************************************************************/
+     usb_set_interface(udev, 1, 0);
     for(i = 0 ; i < URB_COUNT; i++) {
 
       // TODOverif si en usage ??
+
       usb_kill_urb(driver->isoc_in_urb[i]);
       usb_free_urb(driver->isoc_in_urb[i]);
 
@@ -362,7 +391,6 @@ Ici, il faut transmettre la commande de Reset reçue de l'usager
 *******************************************************************************/
   printk(KERN_INFO "ELE784 -> IOCTL_PANTILT_RESET\n");
 
- // copy_from_user(&user_request, (struct usb_request *)arg, sizeof(struct usb_request));
 
   data_size = 1;
   request   = 0x01;
@@ -375,7 +403,7 @@ Ici, il faut transmettre la commande de Reset reçue de l'usager
     data = kmalloc(data_size, GFP_KERNEL);
     copy_from_user(data, ((uint8_t __user *) arg), data_size*sizeof(uint8_t));
   }
-  uint8_t dataTp;
+ 
   dataTp = *data; 
   printk(KERN_WARNING "ELE784 -> IOCTL PanTilt Data Adress %p,  Value: %u\n",data, *data);
   //printk(KERN_WARNING "ELE784 -> IOCTL PanTilt Data Adress %p,  Value: %u\n",&data, data);
@@ -408,35 +436,43 @@ ssize_t ele784_read(struct file *file, char __user *buffer, size_t count, loff_t
 
   struct orbit_driver  *driver = (struct orbit_driver *) file->private_data;
 
-  //allocation size of count 
-  // créer un urb
-  struct urb *urb;
+  // créer un espace temporaire pour le data a recevoir des urb et transmettre au user
+  struct driver_buffer *buff_temp = kzalloc(sizeof(struct driver_buffer),GFP_KERNEL);
+  uint16_t  buff_index = 0;
+  printk(KERN_WARNING "ELE784 ->  READ\n"); 
 
+  //on active le drapeau de lecture
   driver->frame_buf.Status |= BUF_STREAM_READ;
   
-  urb = kzalloc(sizeof(count),GFP_KERNEL);
+ 
+
   // on attend l'arrivée d'une prochaine image START
-  wait_for_completion(driver->frame_buf.new_frame_start);
+  wait_for_completion(&(driver->frame_buf.new_frame_start));
   driver->frame_buf.BytesUsed = 0;
-
-
-  while(!(driver->frame_buf.Status && BUF_STREAM_EOF)) {
-    // on attend la fin d'un urb
-    wait_for_completion(driver->frame_buf.urb_completion);
-    // une fois une completion faite, on récupère les données du urb 
-    complete_callback(urb + driver->frame_buf.BytesUsed);
-    driver->frame_buf.BytesUsed = 
+  printk(KERN_ALERT "ELE784 -> READ, newframe\n");
+  
+  do
+  {    // on attend la fin d'un urb
+    printk(KERN_ALERT "ELE784 -> READ, while\n");
+    wait_for_completion(&(driver->frame_buf.urb_completion));
+    // une fois une completion faite, on récupère les données du urb dans notre buff temporaire(à l'endroit approprié)
+    complete_callback(*driver->isoc_in_urb);// + driver->frame_buf.BytesUsed);
+    memcpy(buff_temp + buff_index,driver->frame_buf.Data,driver->frame_buf.BytesUsed);
+    printk(KERN_ALERT "ELE784 -> READ,Bytes Used:%u\n",driver->frame_buf.BytesUsed);
+    //on incrémente l'index de notre buffer temporaire et on reset bythused
+    buff_index +=driver->frame_buf.BytesUsed;
+    driver->frame_buf.BytesUsed = 0;
+   
     // le callback va remplir le buffer
     // on doit faire mem copy  callback -> pilote + offset
 
 
-  }
+  }while(!(driver->frame_buf.Status & BUF_STREAM_EOF));
 
-  // une fois tous les urb recu on envoie a l'usager
-  // copy_to_user
+  // une fois tous les urb recu on envoie a l'usager notre buffer temporaire construit 
+   copy_to_user(buffer,buff_temp,buff_index);
 
   // free allocation 
-  int i= 0;
+  kfree(buff_temp);
   return (ssize_t) count; 
-
 }
